@@ -20,6 +20,8 @@ The native release is the compatibility build. See [native/START-HERE.txt](nativ
 
 Compatibility target: 64-bit Windows Vista SP2, 7 SP1, 8, 10, and 11. Requires .NET Framework 4 Full or later and Microsoft Universal CRT. Windows 11 native UI, persistence, account gating, hardware consent, integrity checks, and HTTPS transport were smoke-tested here; older operating systems and live OAuth/upload still require verification on the target machine.
 
+After browser authorization, the localhost callback is detected by the EXE, the returned account is verified, and encrypted refresh tokens enable automatic sign-in on later launches. Browser cookies and passwords are never imported. For automatic local library import, put supported audio in `Music\Soundcloud Desktop Inbox`; the startup scan references files in place and does not move or upload them.
+
 The native release is unsigned. Embedded SHA-256 checks resist changed bundled dependencies but cannot make an unsigned executable tamper-proof. One instance is enforced per Windows session.
 
 ## Connect SoundCloud
