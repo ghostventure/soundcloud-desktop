@@ -1,11 +1,10 @@
 # Soundcloud Desktop
 
-An independent Windows artist workspace. Not affiliated with or endorsed by SoundCloud.
+Native Windows artist uploader and workspace. Not affiliated with or endorsed by SoundCloud.
 
 ## Run and build
 
-Requires Node.js and Windows x64. Run `npm ci`, `npm start`, `npm test`, or `npm run dist`.
-If npm blocks Electron's installation script, run `node node_modules/electron/install.js`.
+The native release is the compatibility build. See [native/START-HERE.txt](native/START-HERE.txt) for prerequisites and first-run instructions.
 
 ## Included
 
@@ -13,9 +12,15 @@ If npm blocks Electron's installation script, run `node node_modules/electron/in
 - Local audio import, drag and drop, playback, seeking, volume, media-session controls, track metadata and Explorer reveal.
 - Release planning, artwork, linked tracks, checklists and copyable release briefs.
 - Promotion campaigns with contacts, dates, captions, links and clipboard export.
+- Artist Studio, Amplify, Insights, and Monetization pages with official SoundCloud management links.
+- Explicit speaker/headphone consent with Allow/Deny and reset. Microphone, camera, and location are not used.
 - Dark, light and system appearance, native Windows window controls, minimize to tray.
 - Atomic local workspace saves, metadata backup and restore with a pre-restore copy.
-- Personal SoundCloud app credentials encrypted with Electron safeStorage (Windows DPAPI), browser OAuth with PKCE/state, token refresh, profile and paginated catalog snapshots.
+- Personal SoundCloud app credentials encrypted with Windows DPAPI, verified account identity, and direct streamed uploads.
+
+Compatibility target: 64-bit Windows Vista SP2, 7 SP1, 8, 10, and 11. Requires .NET Framework 4 Full or later and Microsoft Universal CRT. Windows 11 native UI, persistence, account gating, hardware consent, integrity checks, and HTTPS transport were smoke-tested here; older operating systems and live OAuth/upload still require verification on the target machine.
+
+The native release is unsigned. Embedded SHA-256 checks resist changed bundled dependencies but cannot make an unsigned executable tamper-proof. One instance is enforced per Windows session.
 
 ## Connect SoundCloud
 
