@@ -1,0 +1,14 @@
+node_modules/
+dist/
+native/out/
+native/vendor/
+tests/*.png
+tests/*-pid.txt
+tests/*.yaml
+tests/*.html
+*.secure
+*.tmp
+*.log
+.env*
+! .env.example
+workspace.json

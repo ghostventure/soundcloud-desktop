@@ -1,0 +1,17 @@
+SOUNDCLOUD DESKTOP 0.1.0 — NATIVE WINDOWS EDITION
+
+Register a SoundCloud API app with Artist Pro, set redirect URI to
+http://127.0.0.1:49832/callback, enter its Client ID/secret locally, and authorize
+on SoundCloud. The app verifies the account before enabling direct uploads.
+
+Target: 64-bit Windows Vista SP2, 7 SP1, 8, 10, 11. Requires .NET Framework 4
+Full or later and Microsoft Universal CRT. Vista supports up to .NET 4.6.
+The bundled curl build provides its own current TLS and is checksum-verified.
+Only Windows 11 was runtime-tested here; older targets are not guarantees.
+
+One instance is allowed per Windows session. Credentials use Windows DPAPI.
+Audio uploads stream directly to SoundCloud with no automatic duplicate retries.
+Amplify, Artist Studio, detailed Insights, monetization, and payouts open official
+SoundCloud pages. Playback asks for speaker/headphone consent; microphone, camera,
+and location are not used. This unsigned build is tamper-resistant against changed
+bundled dependencies, not tamper-proof. Compare release SHA256SUMS.

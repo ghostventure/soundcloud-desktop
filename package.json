@@ -1,0 +1,59 @@
+{
+  "name": "soundcloud-desktop",
+  "productName": "Soundcloud Desktop",
+  "version": "0.1.0",
+  "description": "An independent Windows workspace for SoundCloud artists",
+  "author": "Soundcloud Desktop",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node tests/smoke.cjs",
+    "dist": "electron-builder --win nsis portable --x64"
+  },
+  "devDependencies": {
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3",
+    "@playwright/test": "1.63.0"
+  },
+  "build": {
+    "appId": "com.soundclouddesktop.artist",
+    "productName": "Soundcloud Desktop",
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "store.cjs",
+      "connection.cjs",
+      "upload.cjs",
+      "ui/**/*",
+      "assets/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "signExecutable": false,
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "artifactName": "Soundcloud Desktop-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Soundcloud Desktop-Portable-${version}.${ext}"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    }
+  }
+}

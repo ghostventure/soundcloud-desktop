@@ -1,0 +1,18 @@
+const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');const https=require('node:https');const http=require('node:http');
+// Stream multipart audio instead of buffering a potentially multi-gigabyte master in RAM.
+async function sendUpload(file,metadata,{token,url='https://api.soundcloud.com/tracks',onProgress=()=>{},signal,artwork}={}){
+ const stat=await fs.promises.stat(file);if(!stat.isFile()||stat.size===0)throw Error('Choose a non-empty audio file.');if(stat.size>4*1024**3)throw Error('SoundCloud accepts audio files up to 4 GB.');
+ const boundary='----SoundcloudDesktop'+crypto.randomBytes(16).toString('hex');const chunks=[];
+ for(const [key,value] of Object.entries(metadata)){chunks.push({buffer:Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="track[${key}]"\r\n\r\n${value}\r\n`)});}
+ for(const [key,p] of [['asset_data',file],...(artwork?[['artwork_data',artwork]]:[])]){
+  const name=path.basename(p).replace(/["\r\n\\]/g,'_');chunks.push({buffer:Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="track[${key}]"; filename="${name}"\r\nContent-Type: application/octet-stream\r\n\r\n`)});chunks.push({file:p,size:fs.statSync(p).size});chunks.push({buffer:Buffer.from('\r\n')});
+ }
+ chunks.push({buffer:Buffer.from(`--${boundary}--\r\n`)});const total=chunks.reduce((n,c)=>n+(c.buffer?.length||c.size),0);
+ return new Promise((resolve,reject)=>{let sent=0,stream,done=false;const finish=(err,result)=>{if(done)return;done=true;stream?.destroy();signal?.removeEventListener('abort',cancel);err?reject(err):resolve(result);};
+  const req=(url.startsWith('https:')?https:http).request(url,{method:'POST',headers:{Authorization:'OAuth '+token,Accept:'application/json','Content-Type':'multipart/form-data; boundary='+boundary,'Content-Length':total}},res=>{let body='';res.setEncoding('utf8');res.on('data',c=>{body+=c;if(body.length>2e6)req.destroy(Error('Unexpectedly large upload response.'));});res.on('error',e=>finish(e));res.on('end',()=>{if(res.statusCode<200||res.statusCode>=300){finish(Error(`Upload rejected by SoundCloud (${res.statusCode}). ${res.statusCode===401?'Reconnect your account.':res.statusCode===413?'The file exceeds the upload limit.':res.statusCode===429?'Rate limit reached. Try again later.':'Check your account quota and audio format before retrying.'}`));return;}try{const data=JSON.parse(body);if(!data.id&&!data.urn)throw Error('The upload response did not include a track ID. Check your SoundCloud catalog before retrying.');finish(null,data);}catch(e){finish(e);}});});
+  const cancel=()=>req.destroy(Error('Upload cancelled. Check your SoundCloud catalog before retrying if the transfer had completed.'));
+  signal?.addEventListener('abort',cancel,{once:true});req.setTimeout(15*60*1000,()=>req.destroy(Error('Upload timed out. Check your SoundCloud catalog before retrying.')));req.on('error',e=>finish(e));if(signal?.aborted){cancel();return;}
+  (async()=>{try{for(const chunk of chunks){if(done)return;if(chunk.buffer){if(!req.write(chunk.buffer))await new Promise((resolve,reject)=>{req.once('drain',resolve);req.once('error',reject);});sent+=chunk.buffer.length;}else{stream=fs.createReadStream(chunk.file);for await(const data of stream){if(done)return;if(!req.write(data))await new Promise((resolve,reject)=>{const drain=()=>{req.off('error',error);resolve();};const error=e=>{req.off('drain',drain);reject(e);};req.once('drain',drain);req.once('error',error);});sent+=data.length;onProgress(Math.min(100,Math.floor(sent/total*100)));}}}onProgress(100);req.end();}catch(e){req.destroy(e);}})();
+ });
+}
+module.exports={sendUpload};
