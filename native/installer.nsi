@@ -2,7 +2,7 @@ Unicode true
 !include "MUI2.nsh"
 !include "x64.nsh"
 Name "Soundcloud Desktop"
-OutFile "..\dist\Soundcloud-Desktop-Setup-0.1.6.exe"
+OutFile "..\dist\Soundcloud-Desktop-Setup-0.1.7.exe"
 InstallDir "$LOCALAPPDATA\Programs\Soundcloud Desktop"
 RequestExecutionLevel user
 CRCCheck force
@@ -47,7 +47,7 @@ Section "Soundcloud Desktop"
  CreateShortcut "$SMPROGRAMS\Soundcloud Desktop\Soundcloud Desktop.lnk" "$INSTDIR\Soundcloud Desktop.exe"
  CreateShortcut "$DESKTOP\Soundcloud Desktop.lnk" "$INSTDIR\Soundcloud Desktop.exe"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoundcloudDesktop" "DisplayName" "Soundcloud Desktop"
- WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoundcloudDesktop" "DisplayVersion" "0.1.6"
+ WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoundcloudDesktop" "DisplayVersion" "0.1.7"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoundcloudDesktop" "UninstallString" '"$INSTDIR\Uninstall.exe"'
 SectionEnd
 Section "Uninstall"
