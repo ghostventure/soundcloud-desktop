@@ -21,21 +21,31 @@ function createWindow(){
 }
 function handler(channel,fn){ipcMain.handle(channel,async(event,...args)=>{if(!win || event.sender!==win.webContents || event.senderFrame!==win.webContents.mainFrame) throw Error('Untrusted caller');return fn(...args);});}
 async function addAudio(paths){
- const s=store.read();let count=0;
- for(const file of paths){if(typeof file!=='string'||!audioExtensions.has(path.extname(file).toLowerCase())||!fs.existsSync(file)||!fs.statSync(file).isFile()||s.tracks.some(t=>t.file===file))continue;
- s.tracks.unshift({id:randomUUID(),title:path.basename(file,path.extname(file)),file,format:path.extname(file).slice(1).toUpperCase(),size:fs.statSync(file).size,status:'Draft',genre:'',notes:'',credits:'',link:'',added:new Date().toISOString()});count++;}
- store.write(s);return {state:s,count};
+ const s=store.read(),seen=new Set(s.tracks.map(track=>track.file));let count=0;
+ if(!Array.isArray(paths))return {state:s,count};
+ for(const file of paths){
+  if(typeof file!=='string'||seen.has(file))continue;
+  const originalExt=path.extname(file),ext=originalExt.toLowerCase();if(!audioExtensions.has(ext))continue;
+  let stat;try{stat=await fs.promises.stat(file);}catch{continue;}
+  if(!stat.isFile())continue;
+  seen.add(file);
+  s.tracks.unshift({id:randomUUID(),title:path.basename(file,originalExt),file,format:ext.slice(1).toUpperCase(),size:stat.size,status:'Draft',genre:'',notes:'',credits:'',link:'',added:new Date().toISOString()});count++;
+ }
+ const saved=await store.writeAsync(s);return {state:saved,count};
+}
+async function saveArtwork(file){
+ const stat=await fs.promises.stat(file);if(!stat.isFile()||stat.size>10*1024*1024)throw Error('Choose artwork smaller than 10 MB.');
+ const dir=path.join(app.getPath('userData'),'artwork');await fs.promises.mkdir(dir,{recursive:true});
+ const dest=path.join(dir,randomUUID()+path.extname(file));await fs.promises.copyFile(file,dest);return dest;
 }
 if(!app.requestSingleInstanceLock()) app.quit(); else {
  app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
  app.whenReady().then(()=>{
   try{store=createStore(app.getPath('userData'));}catch(e){dialog.showErrorBox('Workspace could not be opened',e.message+'\nYour existing data has been preserved.');app.quit();return;}
-  protocol.handle('studio',request=>{
-   const u=new URL(request.url);const id=u.pathname.slice(1);const s=store.read();let file;
-   if(u.hostname==='audio')file=s.tracks.find(t=>t.id===id)?.file;
-   if(u.hostname==='art')file=s.releases.find(r=>r.id===id)?.art;
-   if(u.hostname==='trackart')file=s.tracks.find(t=>t.id===id)?.art;
-   if(!file||!fs.existsSync(file)) return new Response('File unavailable',{status:404});
+  protocol.handle('studio',async request=>{
+   const u=new URL(request.url);const id=u.pathname.slice(1);const file=store.asset(u.hostname,id);
+   if(!file)return new Response('File unavailable',{status:404});
+   try{await fs.promises.access(file,fs.constants.R_OK);}catch{return new Response('File unavailable',{status:404});}
    return net.fetch(pathToFileURL(file).toString(),{headers:request.headers});
   });
   createWindow();
@@ -51,8 +61,9 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    const artwork=meta.releaseId?s.releases.find(r=>r.id===meta.releaseId)?.art:track.art;
    uploadController=new AbortController();let last=-1;
    try{const remote=await account.upload(track.file,fields,{artwork,signal:uploadController.signal,onProgress:percent=>{if(last!==percent){last=percent;win?.webContents.send('upload:progress',{id,percent,title:fields.title});}}});
-    const latest=store.read();const local=latest.tracks.find(t=>t.id===id);if(local){local.link=remote.permalink_url||'';local.lastUpload={id:remote.id||remote.urn,sharing:remote.sharing||fields.sharing,state:remote.state||'processing',at:new Date().toISOString()};store.write(latest);}
-    return {state:store.read(),track:{id:remote.id||remote.urn,title:remote.title||fields.title,sharing:remote.sharing||fields.sharing,state:remote.state||'processing',url:remote.permalink_url||''}};
+    const latest=store.read();const local=latest.tracks.find(t=>t.id===id);if(local){local.link=remote.permalink_url||'';local.lastUpload={id:remote.id||remote.urn,sharing:remote.sharing||fields.sharing,state:remote.state||'processing',at:new Date().toISOString()};}
+    const saved=local?await store.writeAsync(latest):store.read();
+    return {state:saved,track:{id:remote.id||remote.urn,title:remote.title||fields.title,sharing:remote.sharing||fields.sharing,state:remote.state||'processing',url:remote.permalink_url||''}};
    }finally{uploadController=null;}
   });
   tray=new Tray(path.join(__dirname,'assets/icon.ico'));tray.setToolTip('Soundcloud Desktop · Artist workspace');
@@ -60,18 +71,15 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   tray.on('double-click',()=>{if(!win)createWindow();else win.show();});
   handler('workspace:read',()=>store.read());
   handler('workspace:save',s=>{ // Renderer may edit metadata but cannot grant itself filesystem access.
-   const old=store.read();
-   for(const t of s.tracks||[]) {const previous=old.tracks.find(p=>p.id===t.id);if(!previous||t.file!==previous.file||t.art!==previous.art)throw Error('Import audio and artwork with the file picker.');}
-   for(const r of s.releases||[])if(r.art && r.art!==old.releases.find(p=>p.id===r.id)?.art)throw Error('Choose artwork with the file picker.');
-   return store.write(s);
+   return store.writeRenderer(s);
   });
   handler('audio:import',async()=>{const r=await dialog.showOpenDialog(win,{title:'Add music to your library',properties:['openFile','multiSelections'],filters:[{name:'Audio',extensions:[...audioExtensions].map(x=>x.slice(1))}]});return addAudio(r.canceled?[]:r.filePaths);});
   handler('audio:drop',paths=>addAudio(paths));
   handler('audio:reveal',id=>{const t=store.read().tracks.find(t=>t.id===id);if(t && fs.existsSync(t.file))shell.showItemInFolder(t.file);else throw Error('The original file was moved or removed.');});
-  handler('audio:artwork',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Cover artwork',extensions:['png','jpg','jpeg']}]});if(r.canceled)return store.read();const s=store.read();const t=s.tracks.find(t=>t.id===id);if(!t)throw Error('Track not found.');const file=r.filePaths[0];if(fs.statSync(file).size>10*1024*1024)throw Error('Choose artwork smaller than 10 MB.');const dir=path.join(app.getPath('userData'),'artwork');fs.mkdirSync(dir,{recursive:true});const dest=path.join(dir,randomUUID()+path.extname(file));fs.copyFileSync(file,dest);t.art=dest;return store.write(s);});
-  handler('artwork:pick',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Artwork',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled)return store.read(); const s=store.read();const release=s.releases.find(r=>r.id===id);if(!release)throw Error('Release not found');const dir=path.join(app.getPath('userData'),'artwork');fs.mkdirSync(dir,{recursive:true});const dest=path.join(dir,randomUUID()+path.extname(r.filePaths[0]));fs.copyFileSync(r.filePaths[0],dest);release.art=dest;return store.write(s);});
-  handler('workspace:backup',async()=>{const r=await dialog.showSaveDialog(win,{defaultPath:'Soundcloud Desktop-workspace.json',filters:[{name:'Workspace backup',extensions:['json']}]});if(!r.canceled){fs.writeFileSync(r.filePath,JSON.stringify(store.read(),null,2));return true;}return false;});
-  handler('workspace:restore',async()=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Workspace backup',extensions:['json']}]});if(r.canceled)return null;const {validate}=require('./store.cjs');const next=validate(JSON.parse(fs.readFileSync(r.filePaths[0],'utf8')));const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Cancel','Restore workspace'],defaultId:0,cancelId:0,message:'Replace the current workspace?',detail:'A copy of the current workspace will be saved before restoring. Audio and artwork files are referenced, not included.'});if(answer.response!==1)return null;if(fs.existsSync(store.file))fs.copyFileSync(store.file,store.file+'.before-restore-'+Date.now()+'.json');return store.write(next);});
+  handler('audio:artwork',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Cover artwork',extensions:['png','jpg','jpeg']}]});if(r.canceled)return store.read();const s=store.read();const t=s.tracks.find(t=>t.id===id);if(!t)throw Error('Track not found.');t.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
+  handler('artwork:pick',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Artwork',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled)return store.read();const s=store.read();const release=s.releases.find(r=>r.id===id);if(!release)throw Error('Release not found');release.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
+  handler('workspace:backup',async()=>{const r=await dialog.showSaveDialog(win,{defaultPath:'Soundcloud Desktop-workspace.json',filters:[{name:'Workspace backup',extensions:['json']}]});if(!r.canceled){await store.flush();await fs.promises.writeFile(r.filePath,JSON.stringify(store.read(),null,2),'utf8');return true;}return false;});
+  handler('workspace:restore',async()=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Workspace backup',extensions:['json']}]});if(r.canceled)return null;const {validate}=require('./store.cjs');const next=validate(JSON.parse(await fs.promises.readFile(r.filePaths[0],'utf8')));const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Cancel','Restore workspace'],defaultId:0,cancelId:0,message:'Replace the current workspace?',detail:'A copy of the current workspace will be saved before restoring. Audio and artwork files are referenced, not included.'});if(answer.response!==1)return null;await store.flush();if(fs.existsSync(store.file))await fs.promises.copyFile(store.file,store.file+'.before-restore-'+Date.now()+'.json');return store.writeAsync(next);});
   handler('clipboard:copy',text=>{if(typeof text!=='string'||text.length>100000)throw Error('Invalid clipboard text');clipboard.writeText(text);return true;});
   handler('soundcloud:open',key=>{if(!urls[key])throw Error('Unknown destination');return shell.openExternal(urls[key]);});
   handler('theme:set',value=>{if(!['dark','light','system'].includes(value))throw Error('Invalid theme');theme(value);});

@@ -21,6 +21,7 @@ The native release is the compatibility build. See [native/START-HERE.txt](nativ
 - Release planner board and calendar, single/EP/album templates, per-task ownership, due dates, and local readiness checks.
 - Customizable studio dashboard, searchable help, undo/recent-change history, campaign templates, contact follow-ups, and locally organized campaign links.
 - Local upload response tracking, artwork crop preview, and audio file details; update scheduling, crop transforms, SoundCloud click analytics, and remote processing history are not provided by the current API.
+- Responsive 100-row library/catalog pages, asynchronous serialized workspace saves, and faster audio/media file lookups; see [performance notes](docs/PERFORMANCE-0.2.1.md).
 
 Compatibility target: 64-bit Windows Vista SP2, 7 SP1, 8, 10, and 11. Requires .NET Framework 4 Full or later and Microsoft Universal CRT. Windows 11 native UI, persistence, account gating, hardware consent, integrity checks, and HTTPS transport were smoke-tested here; older operating systems and live OAuth/upload still require verification on the target machine.
 
