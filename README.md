@@ -17,6 +17,10 @@ The native release is the compatibility build. See [native/START-HERE.txt](nativ
 - Dark, light and system appearance, native Windows window controls, minimize to tray.
 - Atomic local workspace saves, metadata backup and restore with a pre-restore copy.
 - Personal SoundCloud app credentials encrypted with Windows DPAPI, verified account identity, and direct streamed uploads.
+- Upload desk onboarding, preflight review, local drafts and reminders, reusable metadata presets, duplicate warnings, and batch library editing.
+- Release planner board and calendar, single/EP/album templates, per-task ownership, due dates, and local readiness checks.
+- Customizable studio dashboard, searchable help, undo/recent-change history, campaign templates, contact follow-ups, and locally organized campaign links.
+- Local upload response tracking, artwork crop preview, and audio file details; update scheduling, crop transforms, SoundCloud click analytics, and remote processing history are not provided by the current API.
 
 Compatibility target: 64-bit Windows Vista SP2, 7 SP1, 8, 10, and 11. Requires .NET Framework 4 Full or later and Microsoft Universal CRT. Windows 11 native UI, persistence, account gating, hardware consent, integrity checks, and HTTPS transport were smoke-tested here; older operating systems and live OAuth/upload still require verification on the target machine.
 
@@ -31,7 +35,7 @@ The native release is unsigned. Embedded SHA-256 checks resist changed bundled d
 3. Enter the Client ID and secret in the app's SoundCloud page. Never send the secret in chat.
 4. Select Connect with SoundCloud and authorize in your browser.
 
-This personal build accepts user-owned credentials; it does not ship a shared client secret. Public distribution should use a properly secured server-side integration. Live OAuth requires valid credentials and an accepted registered redirect URI; it has not been verified against the user's account. Uploads run inside the desktop app. Detailed Artist Insights open SoundCloud in your browser. Release dates do not schedule publication. Catalog counters are snapshots, not time-series analytics.
+This personal build accepts user-owned credentials; it does not ship a shared client secret. Public distribution should use a properly secured server-side integration. Live OAuth requires valid credentials and an accepted registered redirect URI; it has not been verified against the user's account. Uploads run inside the desktop app. Detailed Artist Insights open SoundCloud in your browser. Release and upload dates are local planning reminders; they do not schedule SoundCloud publication. Link records do not collect click analytics, upload status only reflects locally available responses, and catalog counters are snapshots rather than time-series analytics.
 
 Local workspace metadata is stored under the app's Windows roaming app-data directory. Audio stays in its original location. Backups include file paths, not audio/artwork bytes or credentials. AIFF and other codec playback depends on Chromium support. Removing workspace records preserves source files. Disconnect removes this app's local tokens; revoke the app through SoundCloud to revoke authorization remotely.
 
