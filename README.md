@@ -4,7 +4,7 @@ Native Windows artist uploader and workspace. Not affiliated with or endorsed by
 
 ## Current desktop release
 
-Version 0.2.6 expands Overview with SoundCloud account totals, catalog play and like totals, visibility counts, and top-played tracks alongside the current-tracks preview. These figures come from the most recent catalog sync. See [0.2.6 release notes](docs/RELEASE-0.2.6.md).
+Version 0.2.7 adds catalog filters and comparison tools, track review and detail tools, workspace accessibility and navigation options, and encrypted multi-account switching. Backend catalog snapshots and workspace saves also use less memory and disk space. See [0.2.7 release notes](docs/RELEASE-0.2.7.md).
 
 For first-run setup and the main workflows, see the [SC Artist user guide](docs/USER-GUIDE.md).
 
@@ -32,6 +32,7 @@ The native release is the compatibility build. See [native/START-HERE.txt](nativ
 - Customizable studio dashboard, searchable help, undo/recent-change history, campaign templates, contact follow-ups, and locally organized campaign links.
 - Local upload response tracking, artwork crop preview, and audio file details; update scheduling, crop transforms, SoundCloud click analytics, and remote processing history are not provided by the current API.
 - Responsive 100-row library/catalog pages, asynchronous serialized workspace saves, and faster audio/media file lookups; see [performance notes](docs/PERFORMANCE-0.2.1.md).
+- SoundCloud catalog snapshots keep 2,000 description characters per track, normalize pages as they arrive, and remain sequentially paginated; internal workspace JSON is compact while exported backups stay readable.
 
 Compatibility target: 64-bit Windows Vista SP2, 7 SP1, 8, 10, and 11. Requires .NET Framework 4 Full or later and Microsoft Universal CRT. Windows 11 native UI, persistence, account gating, hardware consent, integrity checks, and HTTPS transport were smoke-tested here; older operating systems and live OAuth/upload still require verification on the target machine.
 

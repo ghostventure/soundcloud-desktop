@@ -1,6 +1,6 @@
 # SC Artist / Soundcloud Desktop User Guide
 
-**For version 0.2.6 on Windows**
+**For version 0.2.7 on Windows**
 
 This guide covers first-time setup, connecting SoundCloud, finding your current SoundCloud tracks, preparing uploads, and organizing releases. Your local music library and your online SoundCloud catalog are separate views.
 
@@ -47,6 +47,24 @@ After a successful connection and catalog sync:
 - Open **Artist Insights** for SoundCloud's detailed time-based analytics.
 
 The preview and catalog are snapshots from the last sync, not a live feed. Catalog play and like totals are summed from the tracks returned by that sync. Confirm that you connected the intended SoundCloud account if the figures or track list do not look right.
+
+### Catalog controls and sync history
+
+On **Overview**, use **Customize Overview cards** to hide or reorder the summary cards. On **SoundCloud**, the catalog tools support sortable columns, optional columns, metadata search, grouping, saved filters, removable filter chips, and multi-selection. These choices are saved on this PC. The sync comparison and catalog change history compare saved snapshots; they do not provide a live feed or a complete SoundCloud activity log.
+
+### Track toolkit
+
+Open **Track toolkit** to review local tracks before upload, check for missing metadata, inspect local or synced track details, and manage pinned and recently opened tracks. Details can include a local audio waveform or an inline SoundCloud preview when the file, account, and track permissions allow it. You can copy a SoundCloud URL or share card, open the track on SoundCloud, and use the keyboard shortcut reference. Batch upload review requires a separate confirmation before any upload begins; choosing Public can make a track visible to everyone.
+
+### Workspace navigation and accessibility
+
+Use **Ctrl+K** to open the command palette and search for pages or available actions. Display preferences include higher contrast, compact spacing, and text scaling. Overview metric explanations clarify whether counts come from the local workspace or the last SoundCloud sync. Sync status and activity summaries are local convenience information.
+
+The activity history records a limited number of recent local actions. One-step undo is available for edits to existing track, release, and campaign records; it does not undo newly added or removed records.
+
+### Multiple SoundCloud accounts
+
+After saving your SoundCloud app credentials, you can add and switch between saved account logins from the SoundCloud page. Account tokens and snapshots are kept separately and encrypted for your Windows account. Finish any upload, sync, or authorization operation before switching or removing an account. The same saved app credentials are used for the accounts in this app.
 
 ## Import and organize music on this PC
 
@@ -113,6 +131,7 @@ The workspace is stored for your Windows user. Use **Settings → Export workspa
 
 ## Related documentation
 
+- [Version 0.2.7 release notes](RELEASE-0.2.7.md)
 - [Version 0.2.6 release notes](RELEASE-0.2.6.md)
 - [Version 0.2.5 release notes](RELEASE-0.2.5.md)
 - [Startup and first-run profile](STARTUP-0.2.4.md)
