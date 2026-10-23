@@ -1,0 +1,14 @@
+﻿#nav{display:flex;flex-direction:column;gap:5px;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:2px 2px 10px;scrollbar-width:thin}
+.nav-group{display:grid;gap:3px;padding-bottom:6px}
+.nav-group+.nav-group{border-top:1px solid var(--line);padding-top:5px}
+.nav-label{margin:8px 12px 4px;font-size:9px;font-weight:700;letter-spacing:1.45px;line-height:1.4;color:var(--muted);opacity:.82}
+#nav button{width:100%;display:flex;align-items:center;gap:11px;text-align:left;min-height:38px;padding:8px 11px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font-size:13px}
+#nav button:hover{background:var(--hover);color:var(--text)}
+#nav button.active{background:var(--soft);border-color:color-mix(in srgb,var(--accent) 26%,transparent);color:var(--text);font-weight:600}
+#nav button.active .icon{color:var(--accent)}
+#nav .icon{flex:0 0 19px;width:19px;text-align:center;font-size:16px}
+.nav-group:first-child .nav-label{margin-top:4px}
+.sidebar-bottom{padding-top:10px;border-top:1px solid var(--line)}
+.sidebar-bottom button{width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:transparent;border-color:transparent;color:var(--muted)}
+#view>.page-head,#view>.aw-head,#view>.rux-page>header,#view>.u-page>header{margin:26px 0 20px}
+@media(max-height:780px){aside{padding-top:18px}.studio-profile{margin-bottom:12px}#nav{gap:1px}.nav-group{gap:1px}.nav-label{margin-top:5px;margin-bottom:2px}#nav button{min-height:34px;padding-block:6px}}
