@@ -2,6 +2,12 @@
 
 Native Windows artist uploader and workspace. Not affiliated with or endorsed by SoundCloud.
 
+## Current desktop release
+
+Version 0.2.3 expands Settings into an artist profile editor with a live preview, tagline, bio, genre, location, SoundCloud and website links, and a copyable formatted bio. Profile details are saved with the local workspace and included in workspace metadata backups. See [artist profile notes](docs/ARTIST-PROFILE-0.2.3.md).
+
+The workspace navigation groups related areas so the main artist tasks are easier to find: Home, Create, Catalog & Releases, Promotion, and SoundCloud, with Settings kept at the bottom. The GUI refresh and profile changes are documented in [GUI and profile release notes](docs/RELEASE-0.2.3.md).
+
 ## Run and build
 
 The native release is the compatibility build. See [native/START-HERE.txt](native/START-HERE.txt) for prerequisites and first-run instructions.
