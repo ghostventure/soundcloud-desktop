@@ -34,3 +34,36 @@
 .studio-profile small{max-width:145px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:1050px){.profile-layout{grid-template-columns:minmax(0,1fr)}.profile-preview{position:static;min-height:0}}
 @media(max-width:650px){.profile-fields{grid-template-columns:minmax(0,1fr)}.profile-fields .profile-wide{grid-column:auto}}
+
+.startup-splash{position:fixed;inset:0;z-index:10000;display:grid;grid-template-rows:auto 1fr auto;padding:34px 42px;background:radial-gradient(ellipse at 50% 44%,color-mix(in srgb,var(--orange) 13%,var(--bg)),var(--bg) 54%);color:var(--text)}
+.startup-splash[hidden]{display:none}
+.splash-brand{display:flex;align-items:center;gap:12px}
+.splash-brand>span:last-child{display:grid;gap:3px}
+.splash-brand strong{font-size:14px;letter-spacing:.2px}
+.splash-brand small{font-size:9px;letter-spacing:1.7px}
+.splash-mark{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--orange);color:#fff;font-weight:800;font-size:18px;box-shadow:0 8px 24px #ff5c2040}
+.splash-center{align-self:center;justify-self:center;text-align:center;display:grid;justify-items:center;gap:13px;transform:translateY(-10px)}
+.splash-center h1{font-size:22px;letter-spacing:-.35px}
+.splash-center p{font-size:13px}
+.splash-equalizer{height:48px;display:flex;align-items:center;gap:5px;margin-bottom:6px}
+.splash-equalizer i{display:block;width:4px;height:14px;border-radius:4px;background:var(--orange);animation:splash-pulse 1s ease-in-out infinite alternate}
+.splash-equalizer i:nth-child(2),.splash-equalizer i:nth-child(6){height:23px;animation-delay:.15s}
+.splash-equalizer i:nth-child(3),.splash-equalizer i:nth-child(5){height:34px;animation-delay:.3s}
+.splash-equalizer i:nth-child(4){height:44px;animation-delay:.45s}
+.splash-footer{display:flex;align-items:center;gap:9px;font-size:11px;color:var(--muted)}
+.splash-footer span{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.splash-error .splash-equalizer{display:none}
+.splash-error .splash-center{align-content:center}
+@keyframes splash-pulse{to{transform:scaleY(.38);opacity:.55}}
+@media(prefers-reduced-motion:reduce){.splash-equalizer i{animation:none}}
+
+.first-run-overlay{position:fixed;inset:0;z-index:10001;display:grid;place-items:center;padding:28px;background:radial-gradient(ellipse at 50% 38%,color-mix(in srgb,var(--orange) 12%,var(--bg)),var(--bg) 62%);overflow:auto}
+.first-run-overlay[hidden]{display:none}
+.first-run-card{width:min(540px,100%);display:grid;gap:14px;padding:32px;border:1px solid var(--line);border-radius:18px;background:var(--panel);box-shadow:0 22px 80px #0005}
+.first-run-card h1{font-size:27px}
+.first-run-card>p{font-size:13px}
+.first-run-card>.field,.first-run-card .field{display:grid;gap:7px;color:var(--text);font-size:12px;font-weight:600}
+.first-run-card>.split-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.first-run-card>button{margin-top:3px}
+.first-run-card>small{line-height:1.45}
+@media(max-width:580px){.first-run-card{padding:23px}.first-run-card>.split-fields{grid-template-columns:minmax(0,1fr)}}
