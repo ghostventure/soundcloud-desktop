@@ -6,7 +6,7 @@ if(testDir) app.setPath('userData',testDir);
 protocol.registerSchemesAsPrivileged([{scheme:'studio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}]);
 app.setAppUserModelId('com.soundclouddesktop.artist');
 if(app.isPackaged){for(const flag of ['remote-debugging-port','remote-debugging-pipe','inspect','inspect-brk'])app.commandLine.removeSwitch(flag);}
-let win,store,tray,uploadController; let quitting=false;
+let win,store,tray,uploadController,account; let quitting=false;
 const urls={home:'https://soundcloud.com',upload:'https://soundcloud.com/upload',insights:'https://soundcloud.com/you/insights',tracks:'https://soundcloud.com/you/tracks',api:'https://developers.soundcloud.com/docs/api/register-app'};
 const audioExtensions=new Set(['.mp3','.wav','.flac','.ogg','.m4a','.aac','.aiff']);
 function theme(value){ if(nativeTheme.themeSource!==value)nativeTheme.themeSource=value; const dark=nativeTheme.shouldUseDarkColors; win?.setTitleBarOverlay({color:dark?'#191a1d':'#f2f3f5',symbolColor:dark?'#f5f5f5':'#222222',height:44}); }
@@ -43,15 +43,26 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
  app.whenReady().then(()=>{
   try{store=createStore(app.getPath('userData'));}catch(e){dialog.showErrorBox('Workspace could not be opened',e.message+'\nYour existing data has been preserved.');app.quit();return;}
   protocol.handle('studio',async request=>{
-   const u=new URL(request.url);const id=u.pathname.slice(1);const file=store.asset(u.hostname,id);
+   const u=new URL(request.url);
+   if(u.hostname==='preview'){
+    const id=u.pathname.slice(1);
+    if(!/^\d+$/.test(id)||!account)return new Response('Preview unavailable',{status:404});
+    try{return await account.preview(id,request.headers.get('range')||'');}
+    catch{return new Response('SoundCloud preview unavailable',{status:502,headers:{'Cache-Control':'no-store'}});}
+   }
+   const id=u.pathname.slice(1);const file=store.asset(u.hostname,id);
    if(!file)return new Response('File unavailable',{status:404});
    try{await fs.promises.access(file,fs.constants.R_OK);}catch{return new Response('File unavailable',{status:404});}
    return net.fetch(pathToFileURL(file).toString(),{headers:request.headers});
   });
   createWindow();
-  let account;try{account=require('./connection.cjs').createConnection(app.getPath('userData'));}catch(e){dialog.showErrorBox('SoundCloud connection',e.message);}
+  try{account=require('./connection.cjs').createConnection(app.getPath('userData'));}catch(e){dialog.showErrorBox('SoundCloud connection',e.message);}
   handler('account:status',()=>account?account.status():{configured:false,connected:false});
-  for(const action of ['credentials','authorize','sync','disconnect'])handler('account:'+action,(...args)=>{if(!account)throw Error('Account storage is unavailable.');return account[action](...args);});
+  for(const action of ['credentials','authorize','sync','disconnect','add','switchTo','remove'])handler('account:'+action,(...args)=>{
+   if(!account)throw Error('Account storage is unavailable.');
+   if(uploadController&&['add','switchTo','remove'].includes(action))throw Error('Finish the current upload before changing SoundCloud accounts.');
+   return account[action](...args);
+  });
   handler('audio:cancel-upload',()=>{uploadController?.abort();});
   handler('audio:upload',async(id,meta)=>{
    if(uploadController)throw Error('An upload is already in progress.');if(!account?.status().connected)throw Error('Connect your SoundCloud account before uploading.');
@@ -82,6 +93,13 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   handler('workspace:restore',async()=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Workspace backup',extensions:['json']}]});if(r.canceled)return null;const {validate}=require('./store.cjs');const next=validate(JSON.parse(await fs.promises.readFile(r.filePaths[0],'utf8')));const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Cancel','Restore workspace'],defaultId:0,cancelId:0,message:'Replace the current workspace?',detail:'A copy of the current workspace will be saved before restoring. Audio and artwork files are referenced, not included.'});if(answer.response!==1)return null;await store.flush();if(fs.existsSync(store.file))await fs.promises.copyFile(store.file,store.file+'.before-restore-'+Date.now()+'.json');return store.writeAsync(next);});
   handler('clipboard:copy',text=>{if(typeof text!=='string'||text.length>100000)throw Error('Invalid clipboard text');clipboard.writeText(text);return true;});
   handler('soundcloud:open',key=>{if(!urls[key])throw Error('Unknown destination');return shell.openExternal(urls[key]);});
+  handler('soundcloud:open-track',value=>{
+   if(typeof value!=='string'||value.length>2048)throw Error('Invalid SoundCloud track link.');
+   let target;try{target=new URL(value);}catch{throw Error('Invalid SoundCloud track link.');}
+   const host=target.hostname.toLowerCase();
+   if(target.protocol!=='https:'||target.username||target.password||target.port||!['soundcloud.com','www.soundcloud.com','on.soundcloud.com','snd.sc'].includes(host))throw Error('Only SoundCloud track links can be opened here.');
+   return shell.openExternal(target.toString());
+  });
   handler('theme:set',value=>{if(!['dark','light','system'].includes(value))throw Error('Invalid theme');theme(value);});
   handler('window:tray',()=>win.hide());
   nativeTheme.on('updated',()=>{if(win)theme(nativeTheme.themeSource);});
