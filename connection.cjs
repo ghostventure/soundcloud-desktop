@@ -5,6 +5,27 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 
 const redirect = 'http://127.0.0.1:49832/callback';
+const catalogDescriptionLimit = 2000;
+
+function snapshotTrack(track) {
+  return {
+    id: track.id,
+    title: track.title,
+    sharing: track.sharing,
+    playback_count: track.playback_count,
+    likes_count: track.likes_count,
+    favoritings_count: track.favoritings_count,
+    description: typeof track.description === 'string' ? track.description.slice(0, catalogDescriptionLimit) : '',
+    permalink_url: typeof track.permalink_url === 'string' ? track.permalink_url : '',
+    streamable: track.streamable === true
+  };
+}
+
+function appendSnapshotPage(tracks, data) {
+  const page = Array.isArray(data) ? data : data.collection || [];
+  for (const track of page) tracks.push(snapshotTrack(track));
+  return Array.isArray(data) ? null : data.next_href;
+}
 
 function createConnection(dir) {
   const file = path.join(dir, 'soundcloud.secure');
@@ -133,28 +154,17 @@ function createConnection(dir) {
     const record = active();
     try {
       const profile = await request('/me', record);
-      let tracks = [];
+      const tracks = [];
       let next = '/me/tracks?linked_partitioning=true&limit=200';
       let pages = 0;
       while (next && pages++ < 50) {
         const data = await request(next, record);
-        tracks.push(...(Array.isArray(data) ? data : data.collection || []));
-        next = Array.isArray(data) ? null : data.next_href;
+        next = appendSnapshotPage(tracks, data);
       }
       if (next) throw Error('Catalog exceeds this build’s 10,000-track sync limit. Previous snapshot preserved.');
       record.snapshot = {
         profile: { username: profile.username, followers_count: profile.followers_count, track_count: profile.track_count },
-        tracks: tracks.map(track => ({
-          id: track.id,
-          title: track.title,
-          sharing: track.sharing,
-          playback_count: track.playback_count,
-          likes_count: track.likes_count,
-          favoritings_count: track.favoritings_count,
-          description: typeof track.description === 'string' ? track.description.slice(0, 12000) : '',
-          permalink_url: typeof track.permalink_url === 'string' ? track.permalink_url : '',
-          streamable: track.streamable === true
-        })),
+        tracks,
         syncedAt: new Date().toISOString()
       };
       if (!record.label || record.label === 'SoundCloud account') record.label = profile.username || record.label;

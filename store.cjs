@@ -23,7 +23,7 @@ function createStore(dir) {
     const task=pendingWrite.then(async()=>{
       const temp=`${file}.${randomUUID()}.tmp`;
       try {
-        await fs.promises.writeFile(temp,JSON.stringify(next,null,2),'utf8');
+        await fs.promises.writeFile(temp,JSON.stringify(next),'utf8');
         await fs.promises.rename(temp,file);
         state=next;
         return structuredClone(state);
@@ -35,7 +35,7 @@ function createStore(dir) {
     pendingWrite=task.then(()=>undefined,()=>undefined);
     return task;
   }
-  function write(value){const next=structuredClone(value);validate(next);const temp=`${file}.${randomUUID()}.tmp`;fs.writeFileSync(temp,JSON.stringify(next,null,2),'utf8');fs.renameSync(temp,file);state=next;return structuredClone(state);}
+  function write(value){const next=structuredClone(value);validate(next);const temp=`${file}.${randomUUID()}.tmp`;fs.writeFileSync(temp,JSON.stringify(next),'utf8');fs.renameSync(temp,file);state=next;return structuredClone(state);}
   function writeAsync(value){const next=structuredClone(value);validate(next);return persist(next);}
   function writeRenderer(value){
     const next=structuredClone(value);validate(next);
