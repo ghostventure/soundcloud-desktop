@@ -50,9 +50,15 @@ function createConnection(dir) {
 
   function persist() {
     if (!safeStorage.isEncryptionAvailable()) throw Error('Windows credential encryption is unavailable.');
-    const temp = file + '.tmp';
-    fs.writeFileSync(temp, safeStorage.encryptString(JSON.stringify(vault)));
-    fs.renameSync(temp, file);
+    const temp = `${file}.${crypto.randomUUID()}.tmp`;
+    try {
+      const encrypted = safeStorage.encryptString(JSON.stringify(vault));
+      fs.writeFileSync(temp, encrypted, { flag: 'wx', mode: 0o600 });
+      fs.renameSync(temp, file);
+    } catch (error) {
+      try { fs.rmSync(temp, { force: true }); } catch { /* Keep the original credential store intact. */ }
+      throw error;
+    }
   }
 
   function active() {
@@ -284,9 +290,12 @@ function createConnection(dir) {
             finish(error);
           }
         });
+        let finished = false;
         const finish = error => {
+          if (finished) return;
+          finished = true;
           clearTimeout(timer);
-          server.close();
+          if (server.listening) server.close();
           error ? reject(error) : resolve();
         };
         server.on('error', error => finish(Error(error.code === 'EADDRINUSE' ? 'The connection port is in use. Close the other connection attempt and try again.' : error.message)));
