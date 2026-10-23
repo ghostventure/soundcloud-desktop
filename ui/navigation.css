@@ -12,3 +12,25 @@
 .sidebar-bottom button{width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:transparent;border-color:transparent;color:var(--muted)}
 #view>.page-head,#view>.aw-head,#view>.rux-page>header,#view>.u-page>header{margin:26px 0 20px}
 @media(max-height:780px){aside{padding-top:18px}.studio-profile{margin-bottom:12px}#nav{gap:1px}.nav-group{gap:1px}.nav-label{margin-top:5px;margin-bottom:2px}#nav button{min-height:34px;padding-block:6px}}
+
+.profile-layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(240px,.85fr);gap:18px;align-items:start;margin:8px 0 20px}
+.profile-editor,.profile-preview{padding:20px}
+.profile-editor>h2{margin-bottom:6px}
+.profile-editor>p{margin-bottom:18px}
+.profile-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}
+.profile-fields .field{display:grid;gap:7px;color:var(--text);font-size:12px;font-weight:600}
+.profile-fields .field small{font-weight:400}
+.profile-fields .profile-wide{grid-column:1/-1}
+.profile-fields textarea{min-height:112px}
+.profile-editor .settings-row{margin-top:20px}
+.profile-preview{position:sticky;top:16px;min-height:290px;display:flex;flex-direction:column;align-items:flex-start;gap:12px;background:linear-gradient(155deg,var(--card),var(--panel) 68%);border-color:color-mix(in srgb,var(--accent) 22%,var(--line))}
+.profile-avatar{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:var(--soft);color:var(--accent);font-size:22px;font-weight:700;letter-spacing:.04em}
+.profile-preview .eyebrow{font-size:9px;letter-spacing:1.5px;color:var(--muted)}
+.profile-preview h2{font-size:22px;overflow-wrap:anywhere}
+.profile-tagline{font-size:13px}
+.profile-meta,.profile-links{display:flex;flex-wrap:wrap;gap:7px}
+.profile-bio-preview{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+.profile-links{font-size:11px;color:var(--muted)}
+.studio-profile small{max-width:145px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:1050px){.profile-layout{grid-template-columns:minmax(0,1fr)}.profile-preview{position:static;min-height:0}}
+@media(max-width:650px){.profile-fields{grid-template-columns:minmax(0,1fr)}.profile-fields .profile-wide{grid-column:auto}}

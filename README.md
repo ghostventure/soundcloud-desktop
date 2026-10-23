@@ -49,3 +49,5 @@ Local workspace metadata is stored under the app's Windows roaming app-data dire
 - https://developers.soundcloud.com/docs
 
 Windows-inspired layout uses Segoe UI, sidebar navigation, native caption buttons, restrained cards, orange accents, inline status messages, and a persistent media bar. This is Electron, not a WinUI application.
+
+- Expanded artist profile with tagline, bio, genre, location, SoundCloud and website links, local preview, and copyable artist bio. Profile details are included in workspace metadata backups.
