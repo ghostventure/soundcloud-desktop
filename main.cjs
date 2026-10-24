@@ -107,6 +107,7 @@ const ipcContracts={
  'account:credentials':{args:[stringArg('client ID',4096,{min:1}),stringArg('client secret',4096,{min:1})],limit:5,window:60000},
  'account:authorize':{args:[],limit:3,window:60000},
  'account:sync':{args:[],limit:4,window:60000},
+ 'account:activity-feed':{args:[],limit:4,window:60000},
  'account:disconnect':{args:[],limit:10,window:60000},
  'account:add':{args:[stringArg('account label',80)],limit:10,window:60000},
  'account:switchTo':{args:[idArg('account ID')],limit:30,window:10000},
@@ -555,6 +556,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   createWindow();
   try{account=require('./connection.cjs').createConnection(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('connection-startup',message);dialog.showErrorBox('SoundCloud connection',message);}
   handler('account:status',()=>account?account.status():{configured:false,connected:false});
+  handler('account:activity-feed',()=>account?account.activityFeed():Promise.reject(Error('Connect your SoundCloud account first.')));
   handler('backend:health',()=>collectBackendHealth());
   handler('update:check',()=>checkGitHubUpdate());
   handler('update:download',version=>downloadGitHubUpdate(version));

@@ -10,6 +10,8 @@ const catalogTrackLimit = 10000;
 const catalogMetricHistoryLimit = 366;
 const catalogPageLimit = 200;
 const catalogPageCountLimit = 50;
+const activityPageLimit = 3;
+const activityItemLimit = 150;
 const catalogTombstoneLimit = 10000;
 const apiResponseByteLimit = 16 * 1024 * 1024;
 const catalogExtraFieldLimit = 16;
@@ -281,6 +283,21 @@ function validatePaginationHref(href) {
     throw apiError('SoundCloud returned an unsupported pagination address. The previous snapshot was preserved.', { code: 'SC_INVALID_PAGINATION' });
   }
   return target.toString();
+}
+
+function validateActivityPaginationHref(href) {
+  const value = validatePaginationHref(href);
+  const target = new URL(value);
+  if (!['/me/feed', '/me/activities'].includes(target.pathname)) {
+    throw apiError('SoundCloud returned an unsupported activity pagination link.', { code: 'SC_INVALID_ACTIVITY_PAGINATION' });
+  }
+  for (const [key, item] of target.searchParams) {
+    if (key === 'limit' && /^(?:[1-9]\d{0,2})$/.test(item) && Number(item) <= 200) continue;
+    if (key === 'cursor' && item.length > 0 && item.length <= 1024 && !/[\r\n]/.test(item)) continue;
+    if (key === 'linked_partitioning' && item === 'true') continue;
+    throw apiError('SoundCloud returned an unsupported activity pagination link.', { code: 'SC_INVALID_ACTIVITY_PAGINATION' });
+  }
+  return value;
 }
 
 function validateProfile(profile) {
@@ -1190,6 +1207,56 @@ function createConnection(dir) {
     }
   }
 
+  async function activityFeed() {
+    const record = active();
+    if (!record?.accessToken) throw Error('Connect your SoundCloud account first.');
+    const deadlineAt = Date.now() + 90000;
+    let next = '/me/feed?limit=50';
+    let pages = 0;
+    const seenPages = new Set();
+    const seenItems = new Set();
+    const items = [];
+    while (next && pages < activityPageLimit && items.length < activityItemLimit) {
+      next = validateActivityPaginationHref(next);
+      if (seenPages.has(next)) throw apiError('SoundCloud repeated an activity page. Try refreshing later.', { code: 'SC_ACTIVITY_PAGINATION_LOOP' });
+      seenPages.add(next);
+      const data = await request(next, record, { deadlineAt });
+      if (!isPlainObject(data) || !Array.isArray(data.collection) || data.collection.length > 200 ||
+          (data.next_href != null && (typeof data.next_href !== 'string' || !data.next_href.trim()))) {
+        throw apiError('SoundCloud returned an invalid activity feed.', { code: 'SC_INVALID_ACTIVITY_FEED' });
+      }
+      for (const entry of data.collection) {
+        if (!isPlainObject(entry) || typeof entry.type !== 'string' || entry.type.length > 80 ||
+            typeof entry.created_at !== 'string' || entry.created_at.length > 80 || !isPlainObject(entry.origin)) continue;
+        const origin = entry.origin;
+        const id = typeof origin.urn === 'string' ? origin.urn : String(origin.id ?? '');
+        const key = `${entry.type}:${id}:${entry.created_at}`;
+        if (seenItems.has(key)) continue;
+        seenItems.add(key);
+        items.push({
+          type: entry.type,
+          createdAt: entry.created_at,
+          kind: typeof origin.kind === 'string' && origin.kind.length <= 40 ? origin.kind : '',
+          title: typeof origin.title === 'string' ? origin.title.slice(0, 300) : '',
+          permalinkUrl: typeof origin.permalink_url === 'string' ? origin.permalink_url.slice(0, 1000) : '',
+          originUrn: id.slice(0, 160),
+          reposter: typeof entry.reposter === 'string' ? entry.reposter.slice(0, 160) : ''
+        });
+        if (items.length >= activityItemLimit) break;
+      }
+      next = data.next_href || null;
+      pages++;
+    }
+    return {
+      accountId: record.id,
+      fetchedAt: new Date().toISOString(),
+      source: 'SoundCloud Public API: GET /me/feed',
+      pagesRead: pages,
+      hasMore: !!next,
+      items
+    };
+  }
+
   async function preview(trackId, range = '', authRetried = false, deadlineAt = Date.now() + 60000) {
     const record = active();
     if (!record?.accessToken) throw Error('Connect your SoundCloud account to preview this track.');
@@ -1405,6 +1472,7 @@ function createConnection(dir) {
     status,
     health,
     sync,
+    activityFeed,
     credentials,
     add,
     switchTo,
