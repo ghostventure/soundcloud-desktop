@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const redirect = 'http://127.0.0.1:49832/callback';
 const catalogDescriptionLimit = 2000;
 const catalogTrackLimit = 10000;
+const catalogMetricHistoryLimit = 366;
 const catalogPageLimit = 200;
 const catalogPageCountLimit = 50;
 const catalogTombstoneLimit = 10000;
@@ -121,20 +122,25 @@ function enterApiCircuit(accountId) {
   if (apiCircuit.openedUntil) apiCircuit.probeInFlight = true;
 }
 
-function recordApiSuccess(accountId) {
+function recordApiSuccess(accountId, persistCircuitCooldowns) {
   const apiCircuit = apiCircuitFor(accountId);
+  const wasOpen = apiCircuit.openedUntil > 0;
   apiCircuit.consecutiveFailures = 0;
   apiCircuit.openedUntil = 0;
   apiCircuit.probeInFlight = false;
+  if (wasOpen) persistCircuitCooldowns?.();
 }
 
-function recordApiFailure(error, accountId) {
+function recordApiFailure(error, accountId, persistCircuitCooldowns) {
   const apiCircuit = apiCircuitFor(accountId);
   apiCircuit.probeInFlight = false;
   const counts = error?.statusCode >= 500 || ['SC_NETWORK_TIMEOUT', 'SC_NETWORK_UNAVAILABLE', 'SC_NETWORK_ERROR', 'SC_DEADLINE_EXCEEDED'].includes(error?.code);
   if (!counts) return;
   apiCircuit.consecutiveFailures++;
-  if (apiCircuit.consecutiveFailures >= apiCircuitFailureLimit) apiCircuit.openedUntil = Date.now() + apiCircuitCooldownMs;
+  if (apiCircuit.consecutiveFailures >= apiCircuitFailureLimit) {
+    apiCircuit.openedUntil = Date.now() + apiCircuitCooldownMs;
+    persistCircuitCooldowns?.();
+  }
 }
 
 function isPlainObject(value) {
@@ -151,6 +157,28 @@ function validLegacyTrackId(value) {
   if (Number.isSafeInteger(value) && value > 0) return String(value);
   if (typeof value === 'string' && /^\d{1,128}$/.test(value) && /[1-9]/.test(value)) return value;
   return '';
+}
+
+function validSoundCloudUserUrn(value) {
+  if (typeof value !== 'string' || value.length > 160 || !/^soundcloud:users:\d{1,128}$/.test(value)) return '';
+  const digits = value.slice('soundcloud:users:'.length).replace(/^0+/, '');
+  return digits ? `soundcloud:users:${digits}` : '';
+}
+
+function soundCloudUserUrn(profile) {
+  const urns = [profile?.urn, profile?.id]
+    .map(validSoundCloudUserUrn)
+    .filter(Boolean);
+  const uniqueUrns = [...new Set(urns)];
+  const numericIds = [profile?.id, profile?.legacy_id]
+    .map(validLegacyTrackId)
+    .filter(Boolean);
+  const normalizedIds = [...new Set(numericIds.map(value => value.replace(/^0+/, '') || '0'))];
+  if (uniqueUrns.length > 1 || normalizedIds.length > 1 ||
+      (uniqueUrns.length && normalizedIds.length && uniqueUrns[0].slice('soundcloud:users:'.length) !== normalizedIds[0])) {
+    throw apiError('SoundCloud returned conflicting account identifiers. The previous catalog snapshot was preserved.', { code: 'SC_INVALID_PROFILE' });
+  }
+  return uniqueUrns[0] || (normalizedIds[0] ? `soundcloud:users:${normalizedIds[0]}` : '');
 }
 
 function trackKey(track) {
@@ -196,10 +224,12 @@ function validateProfile(profile) {
       throw apiError('SoundCloud returned invalid account metrics. The previous snapshot was preserved.', { code: 'SC_INVALID_PROFILE' });
     }
   }
+  const urn = soundCloudUserUrn(profile);
   return {
     username: profile.username,
     followers_count: Number.isSafeInteger(profile.followers_count) ? profile.followers_count : 0,
-    track_count: Number.isSafeInteger(profile.track_count) ? profile.track_count : 0
+    track_count: Number.isSafeInteger(profile.track_count) ? profile.track_count : 0,
+    ...(urn ? { urn } : {})
   };
 }
 
@@ -384,7 +414,32 @@ function validateSavedSnapshot(snapshot) {
     if (value !== undefined && value !== null && (!Number.isSafeInteger(value) || value < 0)) throw Error('Saved SoundCloud catalog has invalid account metrics.');
   }
   if (snapshot.syncedAt !== undefined && typeof snapshot.syncedAt !== 'string') throw Error('Saved SoundCloud catalog has an invalid timestamp.');
-  return structuredClone(snapshot);
+  const saved = structuredClone(snapshot);
+  if (saved.profile.urn !== undefined && (!validSoundCloudUserUrn(saved.profile.urn) || validSoundCloudUserUrn(saved.profile.urn) !== saved.profile.urn)) {
+    throw Error('Saved SoundCloud catalog has an invalid account identity.');
+  }
+  if (saved.metricHistory !== undefined) {
+    const history = validateCatalogMetricHistory(saved.metricHistory);
+    if (history) saved.metricHistory = history;
+    else delete saved.metricHistory;
+  }
+  return saved;
+}
+
+function validateCatalogMetricHistory(history) {
+  if (!Array.isArray(history) || history.length > catalogMetricHistoryLimit) return null;
+  const valid = history.every(item => isPlainObject(item) && typeof item.capturedAt === 'string' && item.capturedAt.length <= 40 &&
+    Number.isFinite(Date.parse(item.capturedAt)) && new Date(Date.parse(item.capturedAt)).toISOString() === item.capturedAt &&
+    Number.isSafeInteger(item.followersCount) && item.followersCount >= 0 &&
+    Number.isSafeInteger(item.trackCount) && item.trackCount >= 0);
+  return valid ? structuredClone(history) : null;
+}
+
+function savedRemoteUserUrn(value) {
+  if (value === undefined || value === '') return '';
+  const urn = validSoundCloudUserUrn(value);
+  if (!urn || urn !== value) throw Error('Saved SoundCloud account has an invalid remote identity.');
+  return urn;
 }
 
 function validateStoredVault(stored) {
@@ -407,6 +462,7 @@ function validateStoredVault(stored) {
       if (item.expires !== undefined && (!Number.isFinite(item.expires) || item.expires < 0)) {
         throw Error('Saved SoundCloud account vault has an invalid expiration time.');
       }
+      const remoteUserUrn = savedRemoteUserUrn(item.remoteUserUrn);
       return {
         ...structuredClone(item),
         id: item.id,
@@ -416,6 +472,7 @@ function validateStoredVault(stored) {
         accessToken: item.accessToken || '',
         refreshToken: item.refreshToken || '',
         expires: Number(item.expires || 0),
+        remoteUserUrn,
         snapshot: validateSavedSnapshot(item.snapshot)
       };
     });
@@ -435,6 +492,7 @@ function validateStoredVault(stored) {
     throw Error('The previous SoundCloud account record has an invalid expiration time.');
   }
   const snapshot = validateSavedSnapshot(stored.snapshot);
+  const remoteUserUrn = savedRemoteUserUrn(stored.remoteUserUrn);
   const account = {
     ...structuredClone(stored),
     id: typeof stored.id === 'string' && stored.id && stored.id.length <= 100 ? stored.id : crypto.randomUUID(),
@@ -444,6 +502,7 @@ function validateStoredVault(stored) {
     accessToken: stored.accessToken || '',
     refreshToken: stored.refreshToken || '',
     expires: Number(stored.expires || 0),
+    remoteUserUrn,
     snapshot
   };
   return { vault: { version: 2, activeAccountId: account.id, accounts: [account] }, migrated: true };
@@ -473,15 +532,28 @@ function validateSyncCheckpoint(value) {
 }
 
 function validateAccountCooldowns(value) {
-  if (!isPlainObject(value) || value.version !== 1 || !Array.isArray(value.accounts) || value.accounts.length > 10 ||
-      value.accounts.some(item => !isPlainObject(item) || typeof item.accountId !== 'string' || !item.accountId || item.accountId.length > 100 ||
+  if (!isPlainObject(value) || ![1, 2].includes(value.version) || !Array.isArray(value.accounts) || value.accounts.length > 10) {
+    throw Error('Saved SoundCloud cooldown state has an invalid format.');
+  }
+  if (value.version === 1 && value.accounts.some(item => !isPlainObject(item) || typeof item.accountId !== 'string' || !item.accountId || item.accountId.length > 100 ||
         !Number.isSafeInteger(item.until) || item.until < 0)) throw Error('Saved SoundCloud cooldown state has an invalid format.');
+  if (value.version === 2 && value.accounts.some(item => !isPlainObject(item) || typeof item.accountId !== 'string' || !item.accountId || item.accountId.length > 100 ||
+        !Number.isSafeInteger(item.rateUntil) || item.rateUntil < 0 || !Number.isSafeInteger(item.circuitUntil) || item.circuitUntil < 0)) {
+    throw Error('Saved SoundCloud cooldown state has an invalid format.');
+  }
   const ids = new Set();
   for (const item of value.accounts) {
     if (ids.has(item.accountId)) throw Error('Saved SoundCloud cooldown state has duplicate accounts.');
     ids.add(item.accountId);
   }
-  return { version: 1, accounts: value.accounts.map(item => ({ accountId: item.accountId, until: item.until })) };
+  return {
+    version: 2,
+    accounts: value.accounts.map(item => ({
+      accountId: item.accountId,
+      rateUntil: value.version === 1 ? item.until : item.rateUntil,
+      circuitUntil: value.version === 1 ? 0 : item.circuitUntil
+    }))
+  };
 }
 
 function createConnection(dir) {
@@ -519,13 +591,22 @@ function createConnection(dir) {
     try {
       if (!safeStorage.isEncryptionAvailable()) return false;
       const knownAccounts = new Set(vault.accounts.map(item => item.id));
+      const activeIds = new Set([
+        ...apiCooldownByAccount.keys(),
+        ...[...apiCircuitByAccount.entries()].filter(([, circuit]) => circuit.openedUntil > Date.now()).map(([accountId]) => accountId)
+      ]);
       const value = {
-        version: 1,
-        accounts: [...apiCooldownByAccount.entries()]
-          .filter(([accountId, until]) => knownAccounts.has(accountId) && Number.isSafeInteger(until) && until > Date.now())
-          .sort((left, right) => right[1] - left[1])
+        version: 2,
+        accounts: [...activeIds]
+          .filter(accountId => knownAccounts.has(accountId))
+          .map(accountId => ({
+            accountId,
+            rateUntil: apiCooldownByAccount.get(accountId) || 0,
+            circuitUntil: apiCircuitByAccount.get(accountId)?.openedUntil || 0
+          }))
+          .filter(item => item.rateUntil > Date.now() || item.circuitUntil > Date.now())
+          .sort((left, right) => Math.max(right.rateUntil, right.circuitUntil) - Math.max(left.rateUntil, left.circuitUntil))
           .slice(0, 10)
-          .map(([accountId, until]) => ({ accountId, until }))
       };
       const encrypted = safeStorage.encryptString(JSON.stringify(validateAccountCooldowns(value)));
       if (encrypted.byteLength > accountCooldownByteLimit) return false;
@@ -550,7 +631,16 @@ function createConnection(dir) {
       const saved = validateAccountCooldowns(JSON.parse(safeStorage.decryptString(fs.readFileSync(cooldownFile))));
       const knownAccounts = new Set(vault.accounts.map(item => item.id));
       const now = Date.now();
-      for (const item of saved.accounts) if (knownAccounts.has(item.accountId) && item.until > now) apiCooldownByAccount.set(item.accountId, Math.min(item.until, now + 24 * 60 * 60 * 1000));
+      for (const item of saved.accounts) {
+        if (!knownAccounts.has(item.accountId)) continue;
+        if (item.rateUntil > now) apiCooldownByAccount.set(item.accountId, Math.min(item.rateUntil, now + 24 * 60 * 60 * 1000));
+        if (item.circuitUntil > now) {
+          const circuit = apiCircuitFor(item.accountId);
+          circuit.consecutiveFailures = apiCircuitFailureLimit;
+          circuit.openedUntil = Math.min(item.circuitUntil, now + apiCircuitCooldownMs);
+          circuit.probeInFlight = false;
+        }
+      }
     } catch { /* A damaged optional cooldown file never blocks account recovery. */ }
   }
 
@@ -582,6 +672,24 @@ function createConnection(dir) {
     target.expires = 0;
     target.snapshotInvalidatedAt = new Date().toISOString();
     persist(candidate);
+  }
+
+  function verifyAndBindRemoteIdentity(record, profile) {
+    const remoteUserUrn = soundCloudUserUrn(profile);
+    const savedUserUrn = record.remoteUserUrn || '';
+    if (savedUserUrn && remoteUserUrn !== savedUserUrn) {
+      throw apiError('The connected SoundCloud login does not match this saved account. Reconnect the intended account or add another saved account.', {
+        code: 'SC_ACCOUNT_IDENTITY_MISMATCH'
+      });
+    }
+    if (!savedUserUrn && remoteUserUrn) {
+      const candidate = structuredClone(vault);
+      const target = candidate.accounts.find(item => item.id === record.id);
+      if (!target) throw Error('The connected SoundCloud account is no longer available.');
+      target.remoteUserUrn = remoteUserUrn;
+      persist(candidate);
+    }
+    return remoteUserUrn || savedUserUrn;
   }
 
   function persist(nextVault = vault) {
@@ -675,6 +783,7 @@ function createConnection(dir) {
       id: record.id,
       label: record.label || username || 'SoundCloud account',
       username,
+      remoteUserUrn: record.remoteUserUrn || '',
       configured: !!record.clientId,
       connected: !!record.accessToken
     };
@@ -816,7 +925,7 @@ function createConnection(dir) {
         });
       } catch (error) {
         const classified = classifyNetworkError(error, deadlineAt);
-        recordApiFailure(classified, record.id);
+        recordApiFailure(classified, record.id, persistAccountCooldowns);
         throw classified;
       }
       if (response.status >= 500) {
@@ -825,10 +934,10 @@ function createConnection(dir) {
         const failure = apiError(response.status === 503 ? boundedRetryMessage(response.status, wait) : `SoundCloud returned ${response.status}. Check the service status and try again.`, {
           code: response.status === 503 ? 'SC_TEMPORARILY_UNAVAILABLE' : 'SC_SERVER_ERROR', statusCode: response.status, retryAfterMs: wait
         });
-        recordApiFailure(failure, record.id);
+        recordApiFailure(failure, record.id, persistAccountCooldowns);
         throw failure;
       }
-      recordApiSuccess(record.id);
+      recordApiSuccess(record.id, persistAccountCooldowns);
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
       const location = response.headers.get('location');
       await response.body?.cancel();
@@ -862,7 +971,7 @@ function createConnection(dir) {
     }
     try { return await readJsonBounded(response, apiResponseByteLimit, deadlineAt); }
     catch (error) {
-      if (['SC_NETWORK_TIMEOUT', 'SC_NETWORK_UNAVAILABLE', 'SC_NETWORK_ERROR', 'SC_DEADLINE_EXCEEDED'].includes(error?.code)) recordApiFailure(error, record.id);
+      if (['SC_NETWORK_TIMEOUT', 'SC_NETWORK_UNAVAILABLE', 'SC_NETWORK_ERROR', 'SC_DEADLINE_EXCEEDED'].includes(error?.code)) recordApiFailure(error, record.id, persistAccountCooldowns);
       throw error;
     }
   }
@@ -889,6 +998,7 @@ function createConnection(dir) {
       persistSyncCheckpoint(checkpoint);
       const profileResponse = await request('/me', record, { deadlineAt });
       const profile = validateProfile(profileResponse);
+      const remoteUserUrn = verifyAndBindRemoteIdentity(record, profileResponse);
       const reportedTrackCount = Number.isSafeInteger(profileResponse?.track_count) && profileResponse.track_count >= 0 ? profileResponse.track_count : null;
       const tracks = [];
       const extraBudget = { usedBytes: 0 };
@@ -913,11 +1023,21 @@ function createConnection(dir) {
       if (!candidateRecord) throw Error('The connected SoundCloud account is no longer available.');
       const completedAtMs = Date.now();
       const syncedAt = new Date(completedAtMs).toISOString();
+      const metricHistory = validateCatalogMetricHistory(record.snapshot?.metricHistory) || [];
+      const hasMetricCounts = Number.isSafeInteger(profileResponse?.followers_count) && profileResponse.followers_count >= 0 &&
+        Number.isSafeInteger(profileResponse?.track_count) && profileResponse.track_count >= 0;
+      if (hasMetricCounts) {
+        const latestMetric = metricHistory[metricHistory.length - 1];
+        const currentMetric = { capturedAt: syncedAt, followersCount: profileResponse.followers_count, trackCount: profileResponse.track_count };
+        if (!latestMetric || latestMetric.capturedAt.slice(0, 10) !== syncedAt.slice(0, 10)) metricHistory.push(currentMetric);
+        else if (latestMetric.followersCount !== currentMetric.followersCount || latestMetric.trackCount !== currentMetric.trackCount) metricHistory[metricHistory.length - 1] = currentMetric;
+      }
       candidateRecord.snapshot = {
         modelVersion: 1,
         fieldPolicy: structuredClone(catalogFieldPolicy),
         profile,
         tracks,
+        metricHistory: metricHistory.slice(-catalogMetricHistoryLimit),
         tombstones: reconcileTombstones(record.snapshot, tracks, syncedAt),
         syncWindow: {
           startedAt: syncStartedAt,
@@ -930,6 +1050,7 @@ function createConnection(dir) {
         },
         syncedAt
       };
+      if (!candidateRecord.remoteUserUrn && remoteUserUrn) candidateRecord.remoteUserUrn = remoteUserUrn;
       delete candidateRecord.snapshotInvalidatedAt;
       if (!candidateRecord.label || candidateRecord.label === 'SoundCloud account') candidateRecord.label = profile.username || candidateRecord.label;
       persist(candidate);
@@ -953,6 +1074,9 @@ function createConnection(dir) {
     if (!record?.accessToken) throw Error('Connect your SoundCloud account to preview this track.');
     enforceAccountCooldown(record);
     await refreshIfNeeded(record, deadlineAt);
+    const profileResponse = await request('/me', record, { deadlineAt });
+    validateProfile(profileResponse);
+    verifyAndBindRemoteIdentity(record, profileResponse);
     enterApiCircuit(record.id);
     const track = record.snapshot?.tracks?.find(item => String(item.id) === String(trackId) || String(item.urn || '') === String(trackId) || String(item.legacy_id || '') === String(trackId));
     if (!track || track.streamable !== true) throw Error('This track is not available for preview through the SoundCloud API.');
@@ -973,17 +1097,17 @@ function createConnection(dir) {
       }
       catch (error) {
         const classified = classifyNetworkError(error, deadlineAt);
-        if (target.origin === 'https://api.soundcloud.com') recordApiFailure(classified, record.id);
+        if (target.origin === 'https://api.soundcloud.com') recordApiFailure(classified, record.id, persistAccountCooldowns);
         throw classified;
       } finally { timeout?.clear(); }
       if (target.origin === 'https://api.soundcloud.com' && response.status >= 500) {
         const failure = apiError('SoundCloud preview service is temporarily unavailable.', { code: 'SC_TEMPORARILY_UNAVAILABLE', statusCode: response.status, retryAfterMs: retryAfterMs(response) });
-        recordApiFailure(failure, record.id);
+        recordApiFailure(failure, record.id, persistAccountCooldowns);
         await response.body?.cancel();
         throw failure;
       }
       if (target.origin === 'https://api.soundcloud.com') {
-        recordApiSuccess(record.id);
+        recordApiSuccess(record.id, persistAccountCooldowns);
         if (response.status === 429) applyAccountCooldown(record, retryAfterMs(response));
       }
       if (target.origin === 'https://api.soundcloud.com' && response.status === 401) {
@@ -1039,6 +1163,7 @@ function createConnection(dir) {
     target.refreshToken = '';
     target.expires = 0;
     target.snapshot = null;
+    target.remoteUserUrn = '';
     persist(candidate);
     return status();
   }
@@ -1162,7 +1287,9 @@ function createConnection(dir) {
     remove,
     async upload(file, metadata, options) {
       const record = active();
-      await request('/me', record);
+      const profile = await request('/me', record);
+      validateProfile(profile);
+      verifyAndBindRemoteIdentity(record, profile);
       return require('./upload.cjs').sendUpload(file, metadata, {
         ...options,
         token: record.accessToken,

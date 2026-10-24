@@ -54,6 +54,74 @@ async function validateArtworkSignature(entry) {
   if (!png && !jpeg && !webp) throw Error('Choose a valid PNG, JPEG, or WebP artwork file.');
 }
 
+async function readFileHeader(entry, length, position = 0) {
+  const output = Buffer.alloc(length);
+  let bytesRead = 0;
+  while (bytesRead < length && position + bytesRead < entry.size) {
+    const result = await entry.handle.read(output, bytesRead, Math.min(length - bytesRead, entry.size - position - bytesRead), position + bytesRead);
+    if (!result.bytesRead) break;
+    bytesRead += result.bytesRead;
+  }
+  return output.subarray(0, bytesRead);
+}
+
+function hasMpegAudioFrame(header) {
+  if (header.length < 4 || header[0] !== 0xff || (header[1] & 0xe0) !== 0xe0) return false;
+  const version = (header[1] >> 3) & 0x03;
+  const layer = (header[1] >> 1) & 0x03;
+  const bitrate = (header[2] >> 4) & 0x0f;
+  const sampleRate = (header[2] >> 2) & 0x03;
+  return version !== 0x01 && layer !== 0 && bitrate !== 0 && bitrate !== 0x0f && sampleRate !== 0x03;
+}
+
+async function hasMp3Signature(entry) {
+  const header = await readFileHeader(entry, 10);
+  if (hasMpegAudioFrame(header)) return true;
+  if (header.length < 10 || header.toString('ascii', 0, 3) !== 'ID3' || ![2, 3, 4].includes(header[3]) || header[4] === 0xff ||
+      (header[6] | header[7] | header[8] | header[9]) & 0x80) return false;
+  const tagSize = (header[6] << 21) | (header[7] << 14) | (header[8] << 7) | header[9];
+  const footerSize = header[3] === 4 && (header[5] & 0x10) ? 10 : 0;
+  const frameOffset = 10 + tagSize + footerSize;
+  if (frameOffset + 4 > entry.size) return false;
+  return hasMpegAudioFrame(await readFileHeader(entry, 4, frameOffset));
+}
+
+async function validateAudioSignature(entry) {
+  const extension = path.extname(entry.path).toLowerCase();
+  let valid = false;
+  if (extension === '.mp3') {
+    valid = await hasMp3Signature(entry);
+  } else {
+    const header = await readFileHeader(entry, extension === '.m4a' ? 24 : 16);
+    if (extension === '.wav') {
+      valid = header.length >= 12 && ['RIFF', 'RF64'].includes(header.toString('ascii', 0, 4)) && header.toString('ascii', 8, 12) === 'WAVE';
+    } else if (extension === '.flac') {
+      valid = header.length >= 4 && header.toString('ascii', 0, 4) === 'fLaC';
+    } else if (extension === '.ogg') {
+      valid = header.length >= 5 && header.toString('ascii', 0, 4) === 'OggS' && header[4] === 0;
+    } else if (extension === '.aiff') {
+      valid = header.length >= 12 && header.toString('ascii', 0, 4) === 'FORM' && ['AIFF', 'AIFC'].includes(header.toString('ascii', 8, 12));
+    } else if (extension === '.m4a') {
+      const boxTypeValid = header.length >= 16 && header.toString('ascii', 4, 8) === 'ftyp';
+      const boxSize = boxTypeValid ? header.readUInt32BE(0) : 0;
+      const majorBrandOffset = boxSize === 1 ? 16 : 8;
+      const majorBrand = header.length >= majorBrandOffset + 4 ? header.toString('ascii', majorBrandOffset, majorBrandOffset + 4) : '';
+      const validFtypSize = boxSize === 1
+        ? header.length >= 24 && header.readBigUInt64BE(8) >= 24n && header.readBigUInt64BE(8) <= BigInt(entry.size)
+        : boxSize >= 16 && boxSize <= entry.size;
+      valid = boxTypeValid && validFtypSize &&
+        ['M4A ', 'M4B ', 'M4P ', 'isom', 'iso2', 'mp41', 'mp42'].includes(majorBrand);
+    } else if (extension === '.aac') {
+      const adtsFrameLength = header.length >= 7 ? ((header[3] & 0x03) << 11) | (header[4] << 3) | ((header[5] >> 5) & 0x07) : 0;
+      const adtsSampleRate = header.length >= 3 ? (header[2] >> 2) & 0x0f : 0x0f;
+      const adts = header.length >= 7 && header[0] === 0xff && (header[1] & 0xf6) === 0xf0 && adtsSampleRate < 13 && adtsFrameLength >= 7 && adtsFrameLength <= entry.size;
+      const adif = header.length >= 4 && header.toString('ascii', 0, 4) === 'ADIF';
+      valid = adts || adif;
+    }
+  }
+  if (!valid) throw Error('The selected file does not match a supported audio format. Check the file and extension before uploading.');
+}
+
 function validateReceipt(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw uploadError('SoundCloud returned an invalid upload receipt. Check your catalog before retrying.', { code: 'SC_UPLOAD_UNCERTAIN' });
   const id = data.id;
@@ -96,6 +164,7 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
   try {
     const audio = await openStableFile(file, 4 * 1024 ** 3);
     openedFiles.push(audio);
+    await validateAudioSignature(audio);
     const cover = artwork ? await openStableFile(artwork, 4 * 1024 ** 3) : null;
     if (cover) { openedFiles.push(cover); await validateArtworkSignature(cover); }
     const fileEntries = [['asset_data', audio], ...(cover ? [['artwork_data', cover]] : [])];
