@@ -2,9 +2,11 @@
 
 Native Windows artist uploader and workspace. Not affiliated with or endorsed by SoundCloud.
 
-## Current desktop release
+## Current project version
 
-Version 0.2.7 adds catalog filters and comparison tools, track review and detail tools, workspace accessibility and navigation options, and encrypted multi-account switching. Backend catalog snapshots and workspace saves also use less memory and disk space. See [0.2.7 release notes](docs/RELEASE-0.2.7.md).
+The source and package metadata are now version 0.2.8. This update consolidates the first 50 items of a ranked backend improvement pass. Some items were already present before the pass; others were hardened, implemented with explicit limits, or remain partial because SoundCloud does not provide the required API behavior. The rank coverage and boundaries are recorded in the [0.2.8 notes](docs/RELEASE-0.2.8.md). This source update does not itself mean that a 0.2.8 installer has been built or published.
+
+Version 0.2.7 added catalog filters and comparison tools, track review and detail tools, workspace accessibility and navigation options, and encrypted multi-account switching. Backend catalog snapshots and workspace saves also use less memory and disk space. See [0.2.7 release notes](docs/RELEASE-0.2.7.md).
 
 For first-run setup and the main workflows, see the [SC Artist user guide](docs/USER-GUIDE.md).
 
@@ -31,12 +33,17 @@ The native release is the compatibility build. See [native/START-HERE.txt](nativ
 - Release planner board and calendar, single/EP/album templates, per-task ownership, due dates, and local readiness checks.
 - Customizable studio dashboard, searchable help, undo/recent-change history, campaign templates, contact follow-ups, and locally organized campaign links.
 - Local upload response tracking, artwork crop preview, and audio file details; update scheduling, crop transforms, SoundCloud click analytics, and remote processing history are not provided by the current API.
+- Bounded SoundCloud catalog sync with encrypted progress checkpoints, freshness metadata, and local absence tombstones; interrupted syncs preserve the last completed snapshot but do not resume.
+- Upload attempt recovery with local receipt journaling and a duplicate-attempt guard. An uncertain result must be checked in SoundCloud before the local review item is cleared; SoundCloud does not provide a remote idempotency guarantee here.
+- Settings health checks for workspace and credential access, plus an opt-in privacy-safe support bundle containing versions, projected health, and sanitized event categories.
 - Responsive 100-row library/catalog pages, asynchronous serialized workspace saves, and faster audio/media file lookups; see [performance notes](docs/PERFORMANCE-0.2.1.md).
 - SoundCloud catalog snapshots keep 2,000 description characters per track, normalize pages as they arrive, and remain sequentially paginated; internal workspace JSON is compact while exported backups stay readable.
 
 Compatibility target: 64-bit Windows Vista SP2, 7 SP1, 8, 10, and 11. Requires .NET Framework 4 Full or later and Microsoft Universal CRT. Windows 11 native UI, persistence, account gating, hardware consent, integrity checks, and HTTPS transport were smoke-tested here; older operating systems and live OAuth/upload still require verification on the target machine.
 
-After browser authorization, the localhost callback is detected by the EXE, the returned account is verified, and encrypted refresh tokens enable automatic sign-in on later launches. Browser cookies and passwords are never imported. For automatic local library import, put supported audio in `Music\Soundcloud Desktop Inbox`; the startup scan references files in place and does not move or upload them.
+After browser authorization, the localhost callback is detected by the app, the returned account is verified, and encrypted refresh tokens enable automatic sign-in on later launches. Browser cookies and passwords are never imported. For automatic local library import, put supported audio in `Music\Soundcloud Desktop Inbox`; the startup scan references files in place and does not move or upload them.
+
+Catalog sync follows SoundCloud's same-origin `next_href` pages sequentially: at most 200 tracks per page, 50 pages and 10,000 tracks total. Each API response is bounded to 16 MiB; a catalog sync has a five-minute deadline and individual API calls have a 30-second timeout. The app does not have a stable SoundCloud cursor or offset-based resume, and it does not resume a partial sync. A complete candidate catalog is held in memory and replaces the encrypted snapshot only after all pages validate; failed or interrupted syncs keep the last completed snapshot. A catalog larger than the limit is rejected with the previous snapshot preserved.
 
 The native release is unsigned. Embedded SHA-256 checks resist changed bundled dependencies but cannot make an unsigned executable tamper-proof. One instance is enforced per Windows session.
 

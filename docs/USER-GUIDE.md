@@ -1,6 +1,6 @@
 # SC Artist / Soundcloud Desktop User Guide
 
-**For version 0.2.7 on Windows**
+**For version 0.2.8 on Windows**
 
 This guide covers first-time setup, connecting SoundCloud, finding your current SoundCloud tracks, preparing uploads, and organizing releases. Your local music library and your online SoundCloud catalog are separate views.
 
@@ -52,6 +52,8 @@ The preview and catalog are snapshots from the last sync, not a live feed. Catal
 
 On **Overview**, use **Customize Overview cards** to hide or reorder the summary cards. On **SoundCloud**, the catalog tools support sortable columns, optional columns, metadata search, grouping, saved filters, removable filter chips, and multi-selection. These choices are saved on this PC. The sync comparison and catalog change history compare saved snapshots; they do not provide a live feed or a complete SoundCloud activity log.
 
+Catalog sync follows SoundCloud's sequential `next_href` pagination, with up to 200 tracks per page, 50 pages, and 10,000 tracks total. Each API response is limited to 16 MiB. A full sync has a five-minute deadline; an individual API call times out after 30 seconds. If the catalog exceeds the cap or a sync is interrupted, the last completed snapshot is preserved. Settings can show the sanitized checkpoint status, but this build cannot resume from a cursor or reliably detect page gaps in a changing remote catalog. Local absence tombstones become confirmed only after a track is absent from two complete successful syncs; this is not proof that SoundCloud deleted the track.
+
 ### Track toolkit
 
 Open **Track toolkit** to review local tracks before upload, check for missing metadata, inspect local or synced track details, and manage pinned and recently opened tracks. Details can include a local audio waveform or an inline SoundCloud preview when the file, account, and track permissions allow it. You can copy a SoundCloud URL or share card, open the track on SoundCloud, and use the keyboard shortcut reference. Batch upload review requires a separate confirmation before any upload begins; choosing Public can make a track visible to everyone.
@@ -89,6 +91,8 @@ The **Upload desk** adds a library organizer for sorting and bulk metadata updat
 
 The upload screen reports transfer progress and can cancel an in-progress transfer. After SoundCloud accepts the upload, processing may continue on SoundCloud. If a file was uploaded before, the app warns that another upload creates a separate SoundCloud track; review the existing catalog before retrying.
 
+The app saves local upload attempts and receipts. If the app closes mid-transfer or the response is ambiguous, **Upload desk** keeps the attempt for review and blocks another attempt for the same local track and account. Check your SoundCloud catalog before selecting **I checked SoundCloud** to clear an unknown result. If SoundCloud already has the track, do not retry. This is a local duplicate safeguard only; the API does not guarantee remote idempotency, and clearing the review item does not cancel or remove a SoundCloud upload. Confirmed receipts should be saved into the workspace before clearing their review item. Uploads are streamed from files up to 4 GiB; a transfer is not automatically retried after an ambiguous outcome.
+
 ## Plan releases
 
 Use **Releases** for a simple release plan or **Release planner** for the board, calendar, templates, task ownership, due dates, artwork preview, and upload activity.
@@ -109,6 +113,14 @@ Use **Promotion** to save campaign drafts, captions, channels, dates, contacts, 
 The workspace is stored for your Windows user. Use **Settings → Export workspace backup** to save profile and workspace metadata. Backups include audio file paths, not the audio files themselves; copy audio and artwork separately when moving to another PC. Credentials and SoundCloud tokens are excluded.
 
 **Restore a backup** replaces the current workspace after confirmation. Before replacing it, the app creates a copy of the current workspace metadata.
+
+The restore preview shows the records that will be added, changed, or removed. The selected backup is capped at 32 MiB before it is read. The preview and pre-restore copy are local safeguards; they do not include audio/artwork bytes or SoundCloud credentials.
+
+### Health checks and support bundle
+
+In **Settings → System health & support**, select **Refresh system health** to check workspace readability/writability and credential-vault/connection status. The view may also show a sanitized catalog sync checkpoint. These checks report current access and do not change Windows folder permissions.
+
+Select **Export support bundle** to save a JSON file containing app/system versions, projected health checks, and recent sanitized event categories/codes. It excludes workspace contents, credentials, account identifiers, local paths, and raw error messages. Review the file before sharing it.
 
 ## Common issues
 
@@ -132,6 +144,7 @@ The workspace is stored for your Windows user. Use **Settings → Export workspa
 ## Related documentation
 
 - [Version 0.2.7 release notes](RELEASE-0.2.7.md)
+- [Version 0.2.8 backend coverage and limits](RELEASE-0.2.8.md)
 - [Version 0.2.6 release notes](RELEASE-0.2.6.md)
 - [Version 0.2.5 release notes](RELEASE-0.2.5.md)
 - [Startup and first-run profile](STARTUP-0.2.4.md)
