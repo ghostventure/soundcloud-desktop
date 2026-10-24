@@ -1,12 +1,13 @@
 const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,protocol,net,Tray,Menu,nativeTheme}=require('electron');
 const fs=require('node:fs'); const path=require('node:path'); const {pathToFileURL,fileURLToPath}=require('node:url');
+const {isDeepStrictEqual}=require('node:util');
 const {createStore,randomUUID}=require('./store.cjs');
 const testDir=!app.isPackaged&&process.env.CLOUDROOM_TEST_DATA;
 if(testDir) app.setPath('userData',testDir);
 protocol.registerSchemesAsPrivileged([{scheme:'studio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}]);
 app.setAppUserModelId('com.soundclouddesktop.artist');
 if(app.isPackaged){for(const flag of ['remote-debugging-port','remote-debugging-pipe','inspect','inspect-brk'])app.commandLine.removeSwitch(flag);}
-let win,store,tray,uploadController,account; let quitting=false;
+let win,store,tray,uploadController,account,uploadJournal; let quitting=false;
 const urls={home:'https://soundcloud.com',upload:'https://soundcloud.com/upload',insights:'https://soundcloud.com/you/insights',tracks:'https://soundcloud.com/you/tracks',api:'https://developers.soundcloud.com/docs/api/register-app'};
 const audioExtensions=new Set(['.mp3','.wav','.flac','.ogg','.m4a','.aac','.aiff']);
 function theme(value){ if(nativeTheme.themeSource!==value)nativeTheme.themeSource=value; const dark=nativeTheme.shouldUseDarkColors; win?.setTitleBarOverlay({color:dark?'#191a1d':'#f2f3f5',symbolColor:dark?'#f5f5f5':'#222222',height:44}); }
@@ -22,6 +23,10 @@ function createWindow(){
 const recordIdPattern=/^[A-Za-z0-9_-]{1,128}$/;
 const ipcWindow=new Map();
 const maxWorkspaceBytes=32*1024*1024;
+function safeSoundCloudUrl(value){
+ if(typeof value!=='string'||!value||value.length>2048)return '';
+ try{const url=new URL(value);return url.protocol==='https:'&&['soundcloud.com','www.soundcloud.com'].includes(url.hostname.toLowerCase())&&!url.username&&!url.password&&!url.port?url.href:'';}catch{return '';}
+}
 const stringArg=(label,max,{min=0,pattern,values}={})=>value=>{
  if(typeof value!=='string'||value.length<min||value.length>max||value.includes('\0'))throw Error(`Invalid ${label}.`);
  if(pattern&&!pattern.test(value))throw Error(`Invalid ${label}.`);
@@ -56,6 +61,8 @@ const ipcContracts={
  'account:remove':{args:[idArg('account ID')],limit:10,window:60000},
  'audio:cancel-upload':{args:[],limit:20,window:10000},
  'audio:upload':{args:[idArg('track ID'),uploadMetadataArg],limit:120,window:60000},
+ 'audio:upload-jobs':{args:[],limit:30,window:10000},
+ 'audio:upload-acknowledge':{args:[idArg('upload job ID')],limit:30,window:10000},
  'workspace:read':{args:[],limit:120,window:10000},
  'workspace:save':{args:[workspaceArg],limit:30,window:10000},
  'audio:import':{args:[],limit:10,window:10000},
@@ -121,21 +128,81 @@ async function saveArtwork(file){
  const dir=path.join(app.getPath('userData'),'artwork');await fs.promises.mkdir(dir,{recursive:true});
  const dest=path.join(dir,randomUUID()+path.extname(file));await fs.promises.copyFile(file,dest);return dest;
 }
+function restorePreview(current,incoming){
+ const lines=[];
+ for(const [label,key] of [['Tracks','tracks'],['Releases','releases'],['Campaigns','campaigns']]){
+  const before=new Map(current[key].map(row=>[row.id,row])),after=new Map(incoming[key].map(row=>[row.id,row]));let added=0,changed=0,removed=0;
+  for(const [id,row] of after){if(!before.has(id))added++;else if(!isDeepStrictEqual(before.get(id),row))changed++;}
+  for(const id of before.keys())if(!after.has(id))removed++;
+  lines.push(`${label}: ${added} added, ${changed} changed, ${removed} removed`);
+ }
+ lines.push(`Artist profile: ${isDeepStrictEqual(current.profile,incoming.profile)?'unchanged':'will be replaced'}`);
+ return lines.join('\n');
+}
+async function readWorkspaceBackup(file){
+ const maxBytes=32*1024*1024,stat=await fs.promises.stat(file);
+ if(!stat.isFile())throw Error('Choose a workspace backup file.');
+ if(stat.size>maxBytes)throw Error('Workspace backups must be 32 MB or smaller.');
+ const chunks=[];let total=0;
+ for await(const chunk of fs.createReadStream(file,{start:0,end:maxBytes})) { total+=chunk.length;if(total>maxBytes)throw Error('Workspace backups must be 32 MB or smaller.');chunks.push(chunk); }
+ return Buffer.concat(chunks,total).toString('utf8');
+}
+function createUploadJournal(dir){
+ const file=path.join(dir,'upload-jobs.json');let jobs=[];
+ if(fs.existsSync(file)){
+  let saved;try{const stat=fs.statSync(file);if(!stat.isFile()||stat.size>1024*1024)throw Error();saved=JSON.parse(fs.readFileSync(file,'utf8'));}catch{throw Error('Saved upload history could not be read. The file was left untouched, and uploads are paused until the history can be recovered.');}
+  const statuses=['uploading','outcome-unknown','accepted','failed','acknowledged'];
+  if(saved?.version!==1||!Array.isArray(saved.jobs)||saved.jobs.length>500||saved.jobs.some(job=>!plainObject(job)||typeof job.id!=='string'||!recordIdPattern.test(job.id)||typeof job.trackId!=='string'||!recordIdPattern.test(job.trackId)||typeof job.title!=='string'||job.title.length>180||!statuses.includes(job.status)||!Number.isFinite(job.progress)||job.progress<0||job.progress>100||typeof job.startedAt!=='string'||typeof job.updatedAt!=='string'||typeof job.message!=='string'||job.message.length>240||(job.remoteId!==undefined&&(typeof job.remoteId!=='string'||job.remoteId.length>128))||(job.remoteUrl!==undefined&&(typeof job.remoteUrl!=='string'||job.remoteUrl.length>2048||(job.remoteUrl!==''&&!safeSoundCloudUrl(job.remoteUrl))))))throw Error('Saved upload history has an unsupported format. The file was left untouched, and uploads are paused until the history can be recovered.');
+  jobs=saved.jobs;
+ }
+ function write(){
+  const temp=`${file}.${randomUUID()}.tmp`;
+  try{fs.writeFileSync(temp,JSON.stringify({version:1,jobs}),{flag:'wx',mode:0o600});fs.renameSync(temp,file);}
+  catch(error){try{fs.rmSync(temp,{force:true});}catch{}throw Error(`Upload history could not be saved: ${error.message}`);}
+ }
+ let interrupted=false;
+ for(const job of jobs)if(job.status==='uploading'){job.status='outcome-unknown';job.progress=job.progress||0;job.updatedAt=new Date().toISOString();job.message='The app closed before it recorded an outcome. Check SoundCloud before retrying.';interrupted=true;}
+ if(interrupted)write();
+ function trim(){
+  const active=jobs.filter(job=>job.status==='uploading'||job.status==='outcome-unknown'||job.status==='accepted');
+  const history=jobs.filter(job=>job.status!=='uploading'&&job.status!=='outcome-unknown'&&job.status!=='accepted').slice(0,100);
+  jobs=[...active,...history];
+ }
+ function get(id){return jobs.find(job=>job.id===id);}
+ return {
+  begin({trackId,title,accountId,accountLabel}){
+   if(jobs.filter(job=>job.status==='outcome-unknown'||job.status==='accepted').length>=250)throw Error('Review or acknowledge saved upload receipts before starting another upload.');
+   if(jobs.some(job=>job.status==='uploading'&&job.trackId===trackId&&job.accountId===String(accountId||'')))throw Error('This track already has an active upload attempt.');
+   if(jobs.some(job=>job.status==='outcome-unknown'&&job.trackId===trackId&&job.accountId===String(accountId||'')))throw Error('A previous upload attempt for this track has an unknown outcome. Check SoundCloud and acknowledge that attempt before retrying.');
+   if(jobs.some(job=>job.status==='accepted'&&job.trackId===trackId&&job.accountId===String(accountId||'')))throw Error('A previous upload was accepted. Save or review its receipt before starting another attempt.');
+   const now=new Date().toISOString(),job={id:randomUUID(),trackId,title:String(title).slice(0,180),accountId:String(accountId||'').slice(0,128),accountLabel:String(accountLabel||'').slice(0,80),status:'uploading',progress:0,startedAt:now,updatedAt:now,message:''};
+   jobs.unshift(job);trim();try{write();}catch(error){jobs=jobs.filter(item=>item.id!==job.id);throw error;}return job.id;
+  },
+  progress(id,value){const job=get(id);if(!job||job.status!=='uploading')return;const percent=Math.max(0,Math.min(100,Math.floor(Number(value)||0)));if(percent-job.progress<5&&percent!==100)return;job.progress=percent;job.updatedAt=new Date().toISOString();write();},
+  accepted(id,remote){const job=get(id);if(!job||job.status!=='uploading')return null;job.status='accepted';job.progress=100;job.remoteId=String(remote.urn||remote.id||'').slice(0,128);job.remoteUrl=safeSoundCloudUrl(remote.permalink_url);job.updatedAt=new Date().toISOString();job.message='SoundCloud accepted this upload. Save the receipt locally before trying this track again.';try{write();return null;}catch(error){return error.message;}},
+  localSaveFailed(id,error){const job=get(id);if(!job||job.status!=='accepted')return null;job.message=`SoundCloud accepted this upload, but local workspace details could not be saved. Receipt: ${job.remoteId||'ID unavailable'}. ${String(error?.message||error||'').slice(0,120)}`.slice(0,240);job.updatedAt=new Date().toISOString();try{write();return null;}catch(writeError){return writeError.message;}},
+  failed(id){const job=get(id);if(!job||job.status!=='uploading')return;job.status='failed';job.updatedAt=new Date().toISOString();job.message='The upload was rejected or failed before an uncertain result was reported. Review the error before retrying.';write();},
+  uncertain(id){const job=get(id);if(!job||job.status!=='uploading')return;job.status='outcome-unknown';job.updatedAt=new Date().toISOString();job.message='SoundCloud may have received this upload. Check your SoundCloud catalog before retrying.';write();},
+  acknowledge(id){const job=get(id);if(!job||!['outcome-unknown','accepted'].includes(job.status))return false;job.status='acknowledged';job.updatedAt=new Date().toISOString();job.message=job.remoteId?`Receipt reviewed: ${job.remoteId}`:'Upload outcome reviewed.';write();return true;},
+  list(){return structuredClone(jobs.slice(0,351));}
+ };
+}
 if(!app.requestSingleInstanceLock()) app.quit(); else {
  app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
  app.whenReady().then(()=>{
   try{store=createStore(app.getPath('userData'));}catch(e){dialog.showErrorBox('Workspace could not be opened',e.message+'\nYour existing data has been preserved.');app.quit();return;}
+  try{uploadJournal=createUploadJournal(app.getPath('userData'));}catch(e){dialog.showErrorBox('Upload recovery history unavailable',e.message);}
   protocol.handle('studio',async request=>{
    let u;try{u=new URL(request.url);}catch{return new Response('File unavailable',{status:404});}
    if(request.method!=='GET'||u.protocol!=='studio:'||u.username||u.password||u.port||u.search||u.hash)return new Response('File unavailable',{status:404});
-   const match=/^\/([A-Za-z0-9_-]{1,128})$/.exec(u.pathname);
-   if(!match)return new Response('File unavailable',{status:404});
-   const id=match[1];
+   const rawPath=u.pathname.slice(1);if(!rawPath||rawPath.length>192||rawPath.includes('/'))return new Response('File unavailable',{status:404});
+   let id;try{id=decodeURIComponent(rawPath);}catch{return new Response('File unavailable',{status:404});}
    if(u.hostname==='preview'){
-    if(!/^\d{1,20}$/.test(id)||!account)return new Response('Preview unavailable',{status:404});
+    if(!/^(?:\d{1,128}|soundcloud:tracks:\d{1,128})$/.test(id)||!account)return new Response('Preview unavailable',{status:404});
     try{return await account.preview(id,request.headers.get('range')||'');}
     catch{return new Response('SoundCloud preview unavailable',{status:502,headers:{'Cache-Control':'no-store'}});}
    }
+   if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))return new Response('File unavailable',{status:404});
    const snapshot=store.read();let file='';
    if(u.hostname==='audio'){
     const track=snapshot.tracks.find(item=>item.id===id);
@@ -165,17 +232,34 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    return account[action](...args);
   });
   handler('audio:cancel-upload',()=>{uploadController?.abort();});
+  handler('audio:upload-jobs',()=>uploadJournal?.list()||[]);
+  handler('audio:upload-acknowledge',id=>uploadJournal?.acknowledge(id)||false);
   handler('audio:upload',async(id,meta)=>{
    if(uploadController)throw Error('An upload is already in progress.');if(!account?.status().connected)throw Error('Connect your SoundCloud account before uploading.');
+   if(!uploadJournal)throw Error('Upload recovery history is unavailable. Resolve the saved history issue before uploading.');
    const s=store.read(),track=s.tracks.find(t=>t.id===id);if(!track)throw Error('Import the audio file first.');
    if(!meta||typeof meta.title!=='string'||!meta.title.trim()||meta.title.length>180||!['public','private'].includes(meta.sharing))throw Error('Add a title and choose private or public.');
    const fields={title:meta.title.trim(),sharing:meta.sharing};for(const k of ['artist','genre','description']){if(typeof meta[k]!=='string'||meta[k].length>10000)throw Error('Invalid upload details.');fields[k]=meta[k];}
    const artwork=meta.releaseId?s.releases.find(r=>r.id===meta.releaseId)?.art:track.art;
-   uploadController=new AbortController();let last=-1;
-   try{const remote=await account.upload(track.file,fields,{artwork,signal:uploadController.signal,onProgress:percent=>{if(last!==percent){last=percent;win?.webContents.send('upload:progress',{id,percent,title:fields.title});}}});
-    const latest=store.read();const local=latest.tracks.find(t=>t.id===id);if(local){local.link=remote.permalink_url||'';local.lastUpload={id:remote.id||remote.urn,sharing:remote.sharing||fields.sharing,state:remote.state||'processing',at:new Date().toISOString()};}
-    const saved=local?await store.writeAsync(latest):store.read();
-    return {state:saved,track:{id:remote.id||remote.urn,title:remote.title||fields.title,sharing:remote.sharing||fields.sharing,state:remote.state||'processing',url:remote.permalink_url||''}};
+   const accountState=account.status(),accountInfo=accountState.accounts?.find(item=>item.id===accountState.activeAccountId);
+   const jobId=uploadJournal.begin({trackId:id,title:fields.title,accountId:accountState.activeAccountId,accountLabel:accountInfo?.label});
+   uploadController=new AbortController();let last=-1,serverAccepted=false,journalWarning='';
+   try{
+    const remote=await account.upload(track.file,fields,{artwork,signal:uploadController.signal,onProgress:percent=>{try{uploadJournal.progress(jobId,percent);}catch(error){journalWarning=journalWarning||String(error?.message||error).slice(0,180);}if(last!==percent){last=percent;win?.webContents.send('upload:progress',{id,percent,title:fields.title});}}});
+    serverAccepted=true;
+    journalWarning=journalWarning||uploadJournal.accepted(jobId,remote)||'';
+    const remoteId=String(remote.urn||remote.id||'').slice(0,128),acceptedTrack={id:remoteId,title:remote.title||fields.title,sharing:remote.sharing||fields.sharing,state:remote.state||'processing',url:safeSoundCloudUrl(remote.permalink_url)};
+    let saved=null,localSaveError='';
+    try{
+     const latest=store.read(),local=latest.tracks.find(t=>t.id===id);
+     if(!local)throw Error('The track was removed from the local workspace before its receipt could be saved.');
+     local.link=acceptedTrack.url;local.lastUpload={id:remoteId,sharing:acceptedTrack.sharing,state:acceptedTrack.state,at:new Date().toISOString(),url:acceptedTrack.url};
+     saved=await store.writeAsync(latest);
+    }catch(error){localSaveError=String(error?.message||error).slice(0,240);const journalError=uploadJournal.localSaveFailed(jobId,error);if(journalError)localSaveError=`${localSaveError}; upload receipt history also could not be saved.`.slice(0,240);}
+    return {state:saved,track:acceptedTrack,jobId,localSaveError,journalWarning};
+   }catch(error){
+    if(!serverAccepted){try{if(error.code==='SC_UPLOAD_UNCERTAIN')uploadJournal.uncertain(jobId);else uploadJournal.failed(jobId);}catch{}}
+    throw error;
    }finally{uploadController=null;}
   });
   tray=new Tray(path.join(__dirname,'assets/icon.ico'));tray.setToolTip('Soundcloud Desktop · Artist workspace');
@@ -191,7 +275,12 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   handler('audio:artwork',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Cover artwork',extensions:['png','jpg','jpeg']}]});if(r.canceled)return store.read();const s=store.read();const t=s.tracks.find(t=>t.id===id);if(!t)throw Error('Track not found.');t.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
   handler('artwork:pick',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Artwork',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled)return store.read();const s=store.read();const release=s.releases.find(r=>r.id===id);if(!release)throw Error('Release not found');release.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
   handler('workspace:backup',async()=>{const r=await dialog.showSaveDialog(win,{defaultPath:'Soundcloud Desktop-workspace.json',filters:[{name:'Workspace backup',extensions:['json']}]});if(!r.canceled){await store.flush();await fs.promises.writeFile(r.filePath,JSON.stringify(store.read(),null,2),'utf8');return true;}return false;});
-  handler('workspace:restore',async()=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Workspace backup',extensions:['json']}]});if(r.canceled)return null;const {validate}=require('./store.cjs');const next=validate(JSON.parse(await fs.promises.readFile(r.filePaths[0],'utf8')));const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Cancel','Restore workspace'],defaultId:0,cancelId:0,message:'Replace the current workspace?',detail:'A copy of the current workspace will be saved before restoring. Audio and artwork files are referenced, not included.'});if(answer.response!==1)return null;await store.flush();if(fs.existsSync(store.file))await fs.promises.copyFile(store.file,store.file+'.before-restore-'+Date.now()+'.json');return store.writeAsync(next);});
+  handler('workspace:restore',async()=>{
+   const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Workspace backup',extensions:['json']}]});if(r.canceled)return null;
+   const {validate}=require('./store.cjs'),next=validate(JSON.parse(await readWorkspaceBackup(r.filePaths[0]))),current=store.read();
+   const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Cancel','Restore workspace'],defaultId:0,cancelId:0,message:'Review workspace restore',detail:`Preview of changes if restored:\n${restorePreview(current,next)}\n\nThis replaces the current workspace. A copy will be saved first. Audio and artwork files are referenced, not included.`});
+   if(answer.response!==1)return null;await store.flush();if(fs.existsSync(store.file))await fs.promises.copyFile(store.file,store.file+'.before-restore-'+Date.now()+'.json');return store.writeAsync(next);
+  });
   handler('clipboard:copy',text=>{if(typeof text!=='string'||text.length>100000)throw Error('Invalid clipboard text');clipboard.writeText(text);return true;});
   handler('soundcloud:open',key=>{if(!urls[key])throw Error('Unknown destination');return shell.openExternal(urls[key]);});
   handler('soundcloud:open-track',value=>{

@@ -15,7 +15,7 @@
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const list = (value) => Array.isArray(value) ? value : [];
-  const validId = id => /^\d+$/.test(String(id ?? ''));
+  const validId = id => /^(?:\d{1,128}|soundcloud:tracks:\d{1,128})$/.test(String(id ?? ''));
   const prettyNumber = value => Number.isFinite(Number(value)) ? Number(value).toLocaleString() : '—';
   const soundcloudUrl = value => {
     try {
@@ -29,7 +29,14 @@
   const remoteTracks = () => list(context.getConnection()?.snapshot?.tracks);
   const keyOf = (kind, id) => `${kind}:${id}`;
   const favoriteRefs = () => list(data().favorites);
-  const isFavorite = (kind, id) => favoriteRefs().some(item => item.kind === kind && item.id === String(id));
+  const isFavorite = (kind, id) => {
+    const aliases = new Set([String(id)]);
+    if (kind === 'remote') {
+      const track = remoteTracks().find(item => String(item.id) === String(id) || String(item.urn) === String(id));
+      if (track) { if (track.id !== undefined) aliases.add(String(track.id)); if (track.urn) aliases.add(String(track.urn)); }
+    }
+    return favoriteRefs().some(item => item.kind === kind && aliases.has(String(item.id)));
+  };
   const safeTrackUrl = track => soundcloudUrl(track?.permalink_url || track?.link || track?.lastUpload?.url);
   const profileName = () => context.getState().profile?.name && context.getState().profile.name !== 'Your studio' ? context.getState().profile.name : '';
   const missingMetadata = track => [
@@ -52,7 +59,16 @@
     return `<button type="button" class="tu-button ${cls}" data-tu-action="${action}" data-id="${esc(id)}" ${extra}>${label}</button>`;
   }
   function localTrack(id) { return localTracks().find(track => String(track.id) === String(id)); }
-  function remoteTrack(id) { return remoteTracks().find(track => String(track.id) === String(id)); }
+  function remoteTrack(id) { return remoteTracks().find(track => String(track.id) === String(id) || String(track.urn) === String(id)); }
+  function remoteTrackId(track) {
+    const urn = String(track?.urn || ''), legacy = String(track?.id ?? '');
+    return validId(urn) ? urn : validId(legacy) ? legacy : '';
+  }
+  function isRecent(kind,id) {
+    const aliases=new Set([String(id)]);
+    if(kind==='remote'){const track=remoteTrack(id);if(track){aliases.add(String(track.id));if(track.urn)aliases.add(String(track.urn));}}
+    return list(data().recent).some(ref=>ref.kind===kind&&aliases.has(String(ref.id)));
+  }
   function release(id) { return releases().find(item => String(item.id) === String(id)); }
   function titleOf(item, fallback = 'Untitled') { return String(item?.title || fallback); }
   function trackWarnings(track) {
@@ -69,13 +85,13 @@
   }
 
   function itemCard(kind, item) {
-    const id = String(item.id);
+    const id = kind === 'remote' ? remoteTrackId(item) || String(item.id) : String(item.id);
     const favorite = isFavorite(kind, id);
     const label = titleOf(item, kind === 'release' ? 'Untitled release' : 'Untitled track');
     const searchText = `${label} ${item.genre || ''} ${item.artist || ''} ${item.sharing || ''} ${item.notes || ''}`.toLowerCase();
     if (search && !searchText.includes(search)) return '';
     if (view === 'pinned' && !favorite) return '';
-    if (view === 'recent' && !list(data().recent).some(ref => ref.kind === kind && String(ref.id) === id)) return '';
+    if (view === 'recent' && !isRecent(kind,id)) return '';
     const checkbox = kind === 'local' ? `<label class="tu-select"><input type="checkbox" data-tu-select="${esc(id)}" ${selected.has(id) ? 'checked' : ''}><span>Review upload</span></label>` : '';
     const secondary = kind === 'local'
       ? `${esc(item.format || 'Audio')} · ${item.size ? `${(Number(item.size) / 1048576).toFixed(1)} MB` : 'size unavailable'} · ${esc(item.status || 'Draft')}`
@@ -138,12 +154,12 @@
     }
     const local = detail.kind === 'local';
     const url = safeTrackUrl(item);
-    const id = String(item.id);
+    const id = detail.kind === 'remote' ? remoteTrackId(item) || String(item.id) : String(item.id);
     const streamAvailable = detail.kind === 'remote' && validId(id) && (item.streamable === true || !!item.stream_url);
     const missing = local ? missingMetadata(item) : [];
     const preview = streamAvailable
       ? `<div class="tu-detail-block"><h3>SoundCloud preview</h3><audio class="tu-remote-audio" controls preload="none" src="studio://preview/${encodeURIComponent(id)}" data-tu-remote-audio="${esc(id)}">Your browser does not support audio playback.</audio><p class="tu-note">This preview uses a stream marked available by SoundCloud. Playback depends on the account and track permissions.</p></div>`
-      : detail.kind === 'remote' ? `<div class="tu-detail-block tu-unavailable"><h3>Inline preview unavailable</h3><p>${validId(id) ? 'SoundCloud did not report a playable stream for this track in the current catalog snapshot.' : 'A valid SoundCloud track ID is not available for a preview.'}</p></div>` : '';
+      : detail.kind === 'remote' ? `<div class="tu-detail-block tu-unavailable"><h3>Inline preview unavailable</h3><p>${validId(id) ? 'SoundCloud did not report a playable stream for this track in the current catalog snapshot.' : 'A valid SoundCloud track identifier is not available for a preview.'}</p></div>` : '';
     const localPlayer = local ? `<div class="tu-detail-block"><h3>Local playback and waveform</h3><audio class="tu-local-audio" controls preload="metadata" src="studio://audio/${encodeURIComponent(id)}" data-tu-local-audio="${esc(id)}">Your browser does not support local audio playback.</audio><div class="tu-wave-wrap"><canvas class="tu-waveform" width="640" height="72" data-tu-waveform="${esc(id)}" role="img" aria-label="Waveform generated from this local audio file"></canvas></div><div class="tu-wave-actions">${button('waveform', waveCache.has(id) ? 'Regenerate waveform' : 'Generate waveform', id)}<span data-tu-wave-status="${esc(id)}">${waveCache.has(id) ? 'Waveform uses decoded samples from this file.' : 'Generate a waveform from the local audio samples; unsupported codecs and larger files use the standard audio controls only.'}</span></div></div>` : '';
     return `<div class="tu-drawer-backdrop" data-tu-action="close-detail"><aside class="tu-drawer" role="dialog" aria-modal="true" aria-labelledby="tu-detail-title" data-tu-drawer><div class="tu-drawer-head"><div><span class="tu-kicker">${local ? 'LOCAL TRACK DETAILS' : 'SOUNDCLOUD TRACK DETAILS'}</span><h2 id="tu-detail-title">${esc(title)}</h2></div>${button('close-detail', 'Close')}</div><div class="tu-detail-grid"><div><span>Artist</span><strong>${esc(local ? (profileName() || 'Not set') : (item.user?.username || item.artist || 'Not provided'))}</strong></div><div><span>${local ? 'File format' : 'Visibility'}</span><strong>${esc(local ? item.format || 'Unknown' : item.sharing || 'Not reported')}</strong></div><div><span>${local ? 'File size' : 'Plays'}</span><strong>${local && item.size ? `${(Number(item.size) / 1048576).toFixed(1)} MB` : local ? 'Unavailable' : prettyNumber(item.playback_count)}</strong></div><div><span>${local ? 'Status' : 'Likes'}</span><strong>${esc(local ? item.status || 'Draft' : prettyNumber(item.likes_count ?? item.favoritings_count))}</strong></div></div>${local ? `<section class="tu-detail-block"><h3>Metadata review</h3>${missing.length ? `<p class="tu-warning-detail">Missing: ${esc(missing.join(', '))}. Add useful details before your next upload.</p>` : '<p class="tu-ready">Title, artist, genre, and credits or description are present.</p>'}<p>${esc(item.notes || item.credits || 'No notes or credits saved.')}</p></section>${localPlayer}` : preview}<section class="tu-detail-block"><h3>SoundCloud link</h3>${url ? `<p class="tu-link-value">${esc(url)}</p>` : '<p class="tu-note">No SoundCloud permalink is available in this snapshot. Sync the catalog or upload the local track to retrieve one.</p>'}</section><div class="tu-drawer-actions">${button('favorite', isFavorite(detail.kind, id) ? 'Unpin' : 'Pin', keyOf(detail.kind, id))}${button('copy-url', 'Copy SoundCloud URL', keyOf(detail.kind, id), '', url ? '' : 'disabled')}${button('share-card', 'Copy share card', keyOf(detail.kind, id), '', url ? '' : 'disabled')}${button('open-track', 'Open in SoundCloud', keyOf(detail.kind, id), '', url && typeof window.studio?.openTrack === 'function' ? '' : 'disabled')}${local ? button('edit-local', 'Edit local metadata', id) + button('reveal', 'Show file in Explorer', id) : ''}</div>${url && typeof window.studio?.openTrack !== 'function' ? '<p class="tu-note">Direct SoundCloud launch is disabled until the secure URL opener is available in this build.</p>' : ''}</aside></div>`;
   }
@@ -287,6 +303,7 @@
     const summary = rows.map(row => `${row.track.title} — ${row.sharing.toUpperCase()}`).join('\n');
     if (!confirm(`Upload these ${rows.length} reviewed track${rows.length === 1 ? '' : 's'} to SoundCloud?\n\n${summary}\n\nEach track will upload separately. A failed upload stops the remaining tracks.`)) return;
     uploading = true;
+    let recoveredReceipt = false;
     context.render();
     try {
       for (const { track, sharing } of rows) {
@@ -298,14 +315,27 @@
           description: [track.credits, track.notes].filter(Boolean).join('\n\n'),
           sharing
         });
-        if (result?.state) await context.update(state => Object.assign(state, result.state));
+        try {
+          await context.update(state => {
+            if (result?.state) Object.assign(state, result.state);
+            const local = list(state.tracks).find(item => item.id === track.id);
+            if (local && result?.track) local.lastUpload = { id: result.track.id, sharing: result.track.sharing, state: result.track.state, at: new Date().toISOString(), url: result.track.url || '' };
+          });
+        } catch (error) { error.uploadAccepted = true; error.acceptedTrackTitle = track.title; throw error; }
+        if (result?.jobId && !result?.journalWarning) {
+          try { await window.studio.acknowledgeUpload(result.jobId); }
+          catch (error) { error.uploadAccepted = true; error.acceptedTrackTitle = track.title; throw error; }
+        }
+        if (result?.localSaveError || result?.journalWarning) recoveredReceipt = true;
       }
       selected.clear();
       reviewIds = [];
       showReview = false;
-      context.notice(`Finished uploading ${rows.length} reviewed track${rows.length === 1 ? '' : 's'}.`);
+      context.notice(recoveredReceipt ? `SoundCloud accepted the reviewed uploads. Review any unacknowledged receipts in Upload desk before starting another attempt.` : `Finished uploading ${rows.length} reviewed track${rows.length === 1 ? '' : 's'}.`);
     } catch (error) {
-      context.notice(`Batch stopped. Tracks already accepted by SoundCloud remain saved; review the failed track before retrying. ${String(error.message || error).slice(0, 220)}`);
+      context.notice(error.uploadAccepted
+        ? `SoundCloud accepted “${error.acceptedTrackTitle || 'this track'}”, but its local receipt could not be finalized. Open Upload desk and review the receipt before retrying. ${String(error.message || error).slice(0, 180)}`
+        : `Batch stopped. Tracks already accepted by SoundCloud remain saved; review the failed track before retrying. ${String(error.message || error).slice(0, 220)}`);
     } finally {
       uploading = false;
       context.render();

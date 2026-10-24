@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('studio',{
   connection:()=>ipcRenderer.invoke('account:status'), credentials:(id,secret)=>ipcRenderer.invoke('account:credentials',id,secret),
   accountAdd:label=>ipcRenderer.invoke('account:add',label), accountSwitch:id=>ipcRenderer.invoke('account:switchTo',id), accountRemove:id=>ipcRenderer.invoke('account:remove',id),
   authorize:()=>ipcRenderer.invoke('account:authorize'), sync:()=>ipcRenderer.invoke('account:sync'), disconnect:()=>ipcRenderer.invoke('account:disconnect'),
-  upload:(id,metadata)=>ipcRenderer.invoke('audio:upload',id,metadata), trackArtwork:id=>ipcRenderer.invoke('audio:artwork',id),cancelUpload:()=>ipcRenderer.invoke('audio:cancel-upload'),
+  upload:(id,metadata)=>ipcRenderer.invoke('audio:upload',id,metadata), uploadJobs:()=>ipcRenderer.invoke('audio:upload-jobs'), acknowledgeUpload:id=>ipcRenderer.invoke('audio:upload-acknowledge',id),
+  trackArtwork:id=>ipcRenderer.invoke('audio:artwork',id),cancelUpload:()=>ipcRenderer.invoke('audio:cancel-upload'),
   onUpload:fn=>ipcRenderer.on('upload:progress',(_event,data)=>fn(data))
 });
