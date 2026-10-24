@@ -1,8 +1,8 @@
 {
   "name": "soundcloud-desktop",
-  "productName": "Soundcloud Desktop",
+  "productName": "SC-DS",
   "version": "1.0.0",
-  "description": "An independent Windows workspace for SoundCloud artists",
+  "description": "An independent Windows workspace by Black Lion Studios",
   "author": "Black Lion Studios",
   "private": true,
   "main": "main.cjs",
@@ -20,7 +20,7 @@
   },
   "build": {
     "appId": "com.soundclouddesktop.artist",
-    "productName": "Soundcloud Desktop",
+    "productName": "SC-DS",
     "asar": true,
     "files": [
       "main.cjs",
@@ -30,6 +30,12 @@
       "upload.cjs",
       "ui/**/*",
       "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "docs/PRIVACY-AND-LICENSES.md",
+        "to": "PRIVACY-AND-LICENSES.md"
+      }
     ],
     "directories": {
       "output": "dist"

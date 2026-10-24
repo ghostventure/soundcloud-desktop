@@ -1,4 +1,4 @@
-# SC Artist / Soundcloud Desktop User Guide
+# SC-DS User Guide
 
 **For version 1.0.0 on Windows**
 
@@ -42,6 +42,7 @@ If SC Artist says an authorization request is already open, switch to the browse
 After a successful connection and catalog sync:
 
 - **Overview** shows account followers and track totals, catalog plays and likes, the catalog's public/private counts, and the three most-played tracks. It also shows up to five current tracks with visibility, plays, and likes.
+- In the Overview current-tracks table, select **Play** for a SoundCloud preview when the current synced catalog marks that track as streamable. Tracks SoundCloud does not mark previewable show **Preview unavailable**. Preview playback uses the existing SoundCloud playback route and stops when you switch or disconnect the account.
 - Select **Sync catalog** to refresh the snapshot, or **View full catalog** to open the complete list.
 - The **SoundCloud** page shows the synced catalog in pages of up to 100 tracks, along with follower and catalog totals.
 - Open **Artist Insights** for SoundCloud's detailed time-based analytics.
@@ -163,6 +164,7 @@ The 1.0.0 release is installed through SC-DS Installation Manager. Update checks
 
 - [Version 1.0.0 release notes](RELEASE-1.0.0.md)
 - [Windows installer and runtime requirements](WINDOWS-INSTALLER.md)
+- [Privacy, product identity, and third-party licenses](PRIVACY-AND-LICENSES.md)
 - [API-supported UX plan](PLAN-API-BACKED-UX-0.3.0.md)
 - [Version 0.2.7 release notes](RELEASE-0.2.7.md)
 - [Version 0.2.8 backend coverage and limits](RELEASE-0.2.8.md)

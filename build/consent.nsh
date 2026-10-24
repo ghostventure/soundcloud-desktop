@@ -1,4 +1,4 @@
-!include "nsDialogs.nsh"
+﻿!include "nsDialogs.nsh"
 !include "LogicLib.nsh"
 !ifndef BUILD_UNINSTALLER
 
@@ -46,15 +46,15 @@ Function SCManagerConsentPage
   Pop $0
   nsDialogs::CreateControl "EDIT" "${WS_CHILD}|${WS_VISIBLE}|${WS_VSCROLL}|${ES_MULTILINE}|${ES_READONLY}|${ES_AUTOVSCROLL}" "${WS_EX_CLIENTEDGE}" 0 34u 100% 202u ""
   Pop $SCMConsentText
-  ${NSD_SetText} $SCMConsentText "INDEPENDENT APP$\r$\nBlack Lion Studios supports SoundCloud. SC-DS is currently an independent product and is not affiliated with SoundCloud. This relationship status may change. SoundCloud remains its own platform and service.$\r$\n$\r$\nDMCA AND COPYRIGHT$\r$\nUpload only content you own or have permission and licenses to use. You are responsible for your content and for responding to DMCA/copyright notices or claims. This app gives no legal advice or protection.$\r$\n$\r$\nSOUNDCLOUD AND OTHER SERVICES$\r$\nSupported features use public API data: activity, selected-track comments, followed-artist tracks, catalog sync, uploads, and saved metrics. Team messages and remote processing status are unavailable in SoundCloud's public API. SoundCloud terms govern authorization and API use. GitHub provides update checks; sign-in opens your default browser. Review the SoundCloud terms using the buttons below.$\r$\n$\r$\nPRIVACY AND COMPONENTS$\r$\nWorkspace data and an Electron safeStorage-encrypted credential file stay in your Windows profile; Windows DPAPI protects the file. Consent is saved locally and not transmitted. Support export is optional and user initiated. Setup bundles Electron, Chromium, and Node.js. Windows supplies networking and file dialogs. No separate .NET, WebView2, or Visual C++ installer is needed."
+  StrCpy $0 "INDEPENDENT APP$\r$\nBlack Lion Studios supports SoundCloud. SC-DS is an independent product, currently not affiliated with or endorsed by SoundCloud; status may change.$\r$\n$\r$\nDMCA / COPYRIGHT$\r$\nUpload only content you own or may use. You are responsible for copyright/DMCA notices. No legal advice or protection.$\r$\n$\r$\n"
+  StrCpy $0 "$0SOUNDCLOUD SERVICES$\r$\nAPI features: feed, comments, followed-artist tracks, catalog sync, uploads, metrics. Team inbox and processing status unavailable. SoundCloud terms apply. Sign-in opens browser; GitHub checks/downloads updates when requested.$\r$\n$\r$\n"
+  StrCpy $0 "$0PRIVACY / COMPONENTS$\r$\nWorkspace and account snapshots stay local. Credentials use Electron safeStorage/Windows DPAPI; consent stays local. Optional support bundle: app version, health, sanitized events; excludes content, credentials, account IDs, paths, raw errors. Full privacy/license notice bundled and in Settings.$\r$\nElectron/Chromium/Node.js included. Windows provides networking/file dialogs; no .NET, WebView2, or Visual C++ runtime needed."
+  ${NSD_SetText} $SCMConsentText $0
 
-  ${NSD_CreateButton} 0 242u 112u 20u "Privacy & licenses"
-  Pop $0
-  ${NSD_OnClick} $0 SCManagerOpenPrivacy
-  ${NSD_CreateButton} 120u 242u 112u 20u "SoundCloud terms"
+  ${NSD_CreateButton} 0 242u 174u 20u "SoundCloud terms"
   Pop $0
   ${NSD_OnClick} $0 SCManagerOpenTerms
-  ${NSD_CreateButton} 240u 242u 112u 20u "API terms"
+  ${NSD_CreateButton} 180u 242u 174u 20u "API terms"
   Pop $0
   ${NSD_OnClick} $0 SCManagerOpenApiTerms
 
@@ -80,6 +80,7 @@ Function SCManagerConsentLeave
   IntFmt $SCMConsentPartMonth "%02u" $SCMConsentPartMonth
   IntFmt $SCMConsentPartDay "%02u" $SCMConsentPartDay
   IntFmt $SCMConsentPartDayOfWeek "%u" $SCMConsentPartDayOfWeek
+  IntFmt $SCMConsentMillis "%03u" $SCMConsentMillis
   IntFmt $SCMConsentPartHour "%02u" $SCMConsentPartHour
   IntFmt $SCMConsentPartMinute "%02u" $SCMConsentPartMinute
   IntFmt $SCMConsentPartSecond "%02u" $SCMConsentPartSecond
@@ -103,10 +104,6 @@ FunctionEnd
 
 Function SCManagerOpenTerms
   ExecShell "open" "https://soundcloud.com/terms-of-use"
-FunctionEnd
-
-Function SCManagerOpenPrivacy
-  ExecShell "open" "https://github.com/ghostventure/soundcloud-desktop/blob/main/docs/PRIVACY-AND-LICENSES.md"
 FunctionEnd
 
 Function SCManagerOpenApiTerms

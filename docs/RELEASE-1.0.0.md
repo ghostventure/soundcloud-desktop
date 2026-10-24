@@ -1,14 +1,14 @@
-# Soundcloud Desktop 1.0.0
+# SC-DS 1.0.0
 
-This is the initial 1.0.0 Windows x64 release of Soundcloud Desktop. It includes a recent tracks panel for followed artists, an API-backed activity feed, selected-track comments review, sync-based performance milestones, and CSV digest export.
+This is the initial 1.0.0 Windows x64 release of SC-DS. It includes a recent tracks panel for followed artists, an API-backed activity feed, selected-track comments review, sync-based performance milestones, and CSV digest export.
 
-Black Lion Studios created and publishes SC-DS / Soundcloud Desktop and supports SoundCloud. SC-DS is currently an independent product and is not affiliated with SoundCloud; this relationship status may change. SoundCloud owns its services, API, and marks.
+Black Lion Studios created and publishes SC-DS and supports SoundCloud. SC-DS is currently an independent product and is not affiliated with or endorsed by SoundCloud; this relationship status may change. SoundCloud owns its services, API, and marks.
 
 ## Installation Manager
 
-The Windows x64 NSIS setup is self-contained and installs Soundcloud Desktop by default. Electron 44.3.0, Chromium, and Node.js are included in the packaged application. Setup checks the Windows architecture and version before installing. It requires Windows 10 or 11 x64; on an older Windows version it explains the issue, offers a one-click Windows Update action, and pauses so setup can be retried after an update and restart. It does not require .NET Framework, WebView2, a Visual C++ Redistributable, a separate browser engine, or other add-on runtime packages.
+The Windows x64 NSIS setup is self-contained and installs SC-DS by default. Electron 44.3.0, Chromium, and Node.js are included in the packaged application. Setup checks the Windows architecture and version before installing. It requires Windows 10 or 11 x64; on an older Windows version it explains the issue, offers a one-click Windows Update action, and pauses so setup can be retried after an update and restart. It does not require .NET Framework, WebView2, a Visual C++ Redistributable, a separate browser engine, or other add-on runtime packages.
 
-The setup's read-only component catalog distinguishes documented SoundCloud API features, API capabilities that are unavailable, bundled/runtime requirements, and future official entries. Unsupported features have no install action. Future catalog additions must cite an official SoundCloud source and ship with a published Soundcloud Desktop release; the app does not scrape for features.
+The setup's read-only component catalog distinguishes documented SoundCloud API features, API capabilities that are unavailable, bundled/runtime requirements, and future official entries. Unsupported features have no install action. Future catalog additions must cite an official SoundCloud source and ship with a published SC-DS release; the app does not scrape for features.
 
 Before installing, users see one required confirmation covering DMCA/copyright responsibility, privacy and local storage, third-party SoundCloud/GitHub services, the current supported SoundCloud functions, and bundled Windows/Electron components. The user's confirmation is recorded with a consent version and local timestamp in their HKCU registry; the installer does not install until confirmation has been checked and saved. Canceling leaves program files uninstalled. Later installers skip the page only when the current consent version and its saved record match.
 

@@ -7,6 +7,7 @@ const {spawn}=require('node:child_process');
 const {createStore,randomUUID}=require('./store.cjs');
 const testDir=!app.isPackaged&&process.env.CLOUDROOM_TEST_DATA;
 if(testDir) app.setPath('userData',testDir);
+else app.setPath('userData',path.join(app.getPath('appData'),'Soundcloud Desktop'));
 protocol.registerSchemesAsPrivileged([{scheme:'studio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}]);
 app.setAppUserModelId('com.soundclouddesktop.artist');
 if(app.isPackaged){for(const flag of ['remote-debugging-port','remote-debugging-pipe','inspect','inspect-brk'])app.commandLine.removeSwitch(flag);}
@@ -35,7 +36,7 @@ function notifyHidden(kind){
  try{const notification=new Notification({title:message[0],body:message[1]});notification.on('click',()=>{if(!win||win.isDestroyed())createWindow();else{win.show();win.focus();}});notification.show();}catch{}
 }
 function createWindow(){
- win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'Soundcloud Desktop — Artist workspace',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:!app.isPackaged}});
+ win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'SC-DS — Artist workspace',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:!app.isPackaged}});
  win.removeMenu(); win.loadFile(path.join(__dirname,'ui/index.html')); win.once('ready-to-show',()=>{theme(store.read().profile.theme);win.show();});
  win.webContents.setWindowOpenHandler(()=>({action:'deny'})); win.webContents.on('will-navigate',e=>e.preventDefault());
  win.webContents.session.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
@@ -120,6 +121,7 @@ const ipcContracts={
  'audio:upload-jobs':{args:[],limit:30,window:10000},
  'audio:upload-acknowledge':{args:[idArg('upload job ID')],limit:30,window:10000},
  'backend:health':{args:[],limit:30,window:10000},
+ 'legal:open-notices':{args:[],limit:10,window:10000},
  'diagnostics:export':{args:[],limit:4,window:60000},
  'update:check':{args:[],limit:6,window:60000},
  'update:download':{args:[stringArg('update version',32,{min:5,pattern:updateVersionPattern})],limit:2,window:60000},
@@ -349,7 +351,7 @@ async function installGitHubUpdate(version){
  if(!installer||!offer.available||offer.latestVersion!==version)throw Error('No newer verified installed-build update is available. Check GitHub again.');
  const directory=await resolveStagingDirectory(),file=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
  if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer is missing or failed its SHA-256 check. Download and verify it again.');
- const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Open installer'],defaultId:0,cancelId:0,message:`Open the verified Soundcloud Desktop ${version} installer?`,detail:'The setup program will open for you to review and run. No update is installed silently; close the setup window to cancel.'});
+ const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Open installer'],defaultId:0,cancelId:0,message:`Open the verified SC-DS ${version} installer?`,detail:'The setup program will open for you to review and run. No update is installed silently; close the setup window to cancel.'});
  if(answer.response!==1)return {started:false,canceled:true};
  if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer changed after review. Download and verify it again.');
  await new Promise((resolve,reject)=>{
@@ -582,6 +584,16 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    return {saved:true,count:history.length};
   });
   handler('backend:health',()=>collectBackendHealth());
+  handler('legal:open-notices',async()=>{
+   const file=path.join(app.isPackaged?process.resourcesPath:path.join(__dirname,'docs'),'PRIVACY-AND-LICENSES.md');
+   if(!fs.existsSync(file))throw Error('The privacy and third-party notices file is missing from this app package.');
+   const openError=await shell.openPath(file);
+   if(openError){
+    if(process.platform!=='win32')throw Error('The privacy and third-party notices file could not be opened.');
+    spawn('notepad.exe',[file],{detached:true,stdio:'ignore',windowsHide:true}).unref();
+   }
+   return true;
+  });
   handler('update:check',()=>checkGitHubUpdate());
   handler('update:download',version=>downloadGitHubUpdate(version));
   handler('update:cancel',()=>{if(!updateDownloadController)return false;updateDownloadController.abort('user-cancel');return true;});
@@ -601,7 +613,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    const bundle={
     schemaVersion:1,
     generatedAt:new Date().toISOString(),
-    app:{name:'Soundcloud Desktop',version:app.getVersion()},
+    app:{name:'SC-DS',version:app.getVersion()},
     system:{platform:process.platform,release:os.release(),architecture:process.arch,electron:process.versions.electron,chromium:process.versions.chrome,node:process.versions.node},
     backend:await collectBackendHealth(),
     recentEvents:diagnosticEvents.slice(0,50).map(({at,channel,category,code})=>({at,channel,category,...(code?{code}:{})})),
@@ -653,8 +665,8 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
     throw error;
    }finally{uploadController=null;}
   });
-  tray=new Tray(path.join(__dirname,'assets/icon.ico'));tray.setToolTip('Soundcloud Desktop · Artist workspace');
-  tray.setContextMenu(Menu.buildFromTemplate([{label:'Open Soundcloud Desktop',click:()=>{if(!win)createWindow();else win.show();}},{label:'Quit',click:()=>{quitting=true;app.quit();}}]));
+  tray=new Tray(path.join(__dirname,'assets/icon.ico'));tray.setToolTip('SC-DS · Artist workspace');
+  tray.setContextMenu(Menu.buildFromTemplate([{label:'Open SC-DS',click:()=>{if(!win)createWindow();else win.show();}},{label:'Quit',click:()=>{quitting=true;app.quit();}}]));
   tray.on('double-click',()=>{if(!win)createWindow();else win.show();});
   handler('workspace:read',()=>store.read());
   handler('workspace:save',s=>{ // Renderer may edit metadata but cannot grant itself filesystem access.

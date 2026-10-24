@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('studio',{
   backup:()=>ipcRenderer.invoke('workspace:backup'), restore:()=>ipcRenderer.invoke('workspace:restore'),
   recoveryCandidates:()=>ipcRenderer.invoke('workspace:recovery-candidates'), restoreRecovery:id=>ipcRenderer.invoke('workspace:recovery-restore',id),
   open:where=>ipcRenderer.invoke('soundcloud:open',where), openTrack:url=>ipcRenderer.invoke('soundcloud:open-track',url), copy:text=>ipcRenderer.invoke('clipboard:copy',text),
+  openNotices:()=>ipcRenderer.invoke('legal:open-notices'),
   theme:value=>ipcRenderer.invoke('theme:set',value), minimize:()=>ipcRenderer.invoke('window:tray'),
   connection:()=>ipcRenderer.invoke('account:status'), credentials:(id,secret)=>ipcRenderer.invoke('account:credentials',id,secret),
   accountAdd:label=>ipcRenderer.invoke('account:add',label), accountSwitch:id=>ipcRenderer.invoke('account:switchTo',id), accountRemove:id=>ipcRenderer.invoke('account:remove',id),

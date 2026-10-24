@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "managerName": "SC-DS Installation Manager",
-  "desktopApp": "Soundcloud Desktop",
+  "desktopApp": "SC-DS",
   "desktopVersion": "1.0.0",
   "items": [
     {

@@ -1,8 +1,6 @@
-# Soundcloud Desktop
+# SC-DS
 
-Created and published by Black Lion Studios. Black Lion Studios supports SoundCloud; SC-DS is currently an independent product and is not affiliated with SoundCloud. This relationship status may change. SoundCloud owns its platform, API, and marks; third-party software remains under its own licenses. See [privacy and third-party licenses](docs/PRIVACY-AND-LICENSES.md).
-
-Native Windows artist uploader and workspace. Not affiliated with or endorsed by SoundCloud.
+Created and published by Black Lion Studios. Black Lion Studios supports SoundCloud; SC-DS is currently an independent product and is not affiliated with or endorsed by SoundCloud. This relationship status may change. SoundCloud owns its platform, API, and marks; third-party software remains under its own licenses. See [privacy and third-party licenses](docs/PRIVACY-AND-LICENSES.md).
 
 ## Current project version
 
@@ -48,7 +46,7 @@ The app is an Electron desktop application targeting 64-bit Windows 10 and 11. I
 - Responsive 100-row library/catalog pages, asynchronous serialized workspace saves, and faster audio/media file lookups; see [performance notes](docs/PERFORMANCE-0.2.1.md).
 - SoundCloud catalog snapshots keep 2,000 description characters per track, normalize pages as they arrive, and remain sequentially paginated; internal workspace JSON is compact while exported backups stay readable.
 
-The Windows installer is unsigned, so Windows may show an unknown publisher warning. Update verification checks installer bytes against GitHub's release SHA-256 metadata, not an Authenticode publisher signature. Setup opens visibly for review and never installs silently. Uninstall removes the program but preserves the workspace and credential files in the user's app-data folder.
+The Windows installer is unsigned, so Windows may show an unknown publisher warning. Update verification checks installer bytes against GitHub's release SHA-256 metadata, not an Authenticode publisher signature. In-app updates always open setup visibly for review. Silent setup is allowed only for a Windows account that already has a complete, matching consent record; first install requires interactive consent. Uninstall removes the program but preserves the workspace and encrypted credential file in the existing `%APPDATA%\Soundcloud Desktop` location.
 
 After browser authorization, the localhost callback is detected by the app, the returned account is verified, and encrypted refresh tokens enable automatic sign-in on later launches. Browser cookies and passwords are never imported. For automatic local library import, put supported audio in `Music\Soundcloud Desktop Inbox`; the startup scan references files in place and does not move or upload them.
 
