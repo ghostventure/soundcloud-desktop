@@ -14,7 +14,11 @@ function validate(s) {
     for (const row of s[k]) { if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.id !== 'string' || !row.id || row.id.length > 256 || ids.has(row.id) || typeof row.title !== 'string' || row.title.length > 1000) throw Error('Invalid workspace record.'); ids.add(row.id); }
   }
   for (const r of s.releases) if (!Array.isArray(r.checks) || r.checks.length > 1000 || !r.checks.every(c => c && typeof c === 'object' && !Array.isArray(c) && typeof c.label === 'string' && c.label.length <= 1000 && typeof c.done === 'boolean' && (c.owner === undefined || typeof c.owner === 'string') && (c.due === undefined || typeof c.due === 'string')) || typeof r.date !== 'string' || (r.type !== undefined && !['Single','EP','Album'].includes(r.type))) throw Error('Invalid release.');
-  for (const t of s.tracks) if (typeof t.file !== 'string' || !['Draft','Mixing','Mastered','Released'].includes(t.status) || (t.size !== undefined && (!Number.isFinite(t.size) || t.size < 0)) || (t.format !== undefined && typeof t.format !== 'string')) throw Error('Invalid track.');
+  for (const t of s.tracks) {
+    if (typeof t.file !== 'string' || !['Draft','Mixing','Mastered','Released'].includes(t.status) || (t.size !== undefined && (!Number.isFinite(t.size) || t.size < 0)) || (t.format !== undefined && typeof t.format !== 'string')) throw Error('Invalid track.');
+    const hashFields=[t.contentHash,t.contentHashSize,t.contentHashMtimeMs,t.contentHashCtimeMs],hasHash=hashFields.some(value=>value!==undefined);
+    if (hasHash && (!/^[a-f0-9]{64}$/i.test(t.contentHash||'') || !Number.isSafeInteger(t.contentHashSize) || t.contentHashSize<0 || t.contentHashSize!==t.size || !Number.isFinite(t.contentHashMtimeMs) || t.contentHashMtimeMs<0 || !Number.isFinite(t.contentHashCtimeMs) || t.contentHashCtimeMs<0)) throw Error('Invalid track content hash.');
+  }
   for (const c of s.campaigns) if (!['Planned','In progress','Done'].includes(c.status) || typeof c.date !== 'string' || (c.channel !== undefined && typeof c.channel !== 'string') || (c.caption !== undefined && typeof c.caption !== 'string')) throw Error('Invalid campaign.');
   return s;
 }
@@ -116,7 +120,7 @@ function createStore(dir) {
   function writeRenderer(value){
     const next=structuredClone(value);validate(next);
     const tracks=new Map(state.tracks.map(track=>[track.id,track]));
-    for(const track of next.tracks){const prior=tracks.get(track.id);if(!prior||track.file!==prior.file||track.art!==prior.art)throw Error('Import audio and artwork with the file picker.');}
+    for(const track of next.tracks){const prior=tracks.get(track.id);if(!prior||track.file!==prior.file||track.art!==prior.art||track.contentHash!==prior.contentHash||track.contentHashSize!==prior.contentHashSize||track.contentHashMtimeMs!==prior.contentHashMtimeMs||track.contentHashCtimeMs!==prior.contentHashCtimeMs)throw Error('Import audio and artwork with the file picker.');}
     const releases=new Map(state.releases.map(release=>[release.id,release]));
     for(const release of next.releases)if(release.art&&release.art!==releases.get(release.id)?.art)throw Error('Choose artwork with the file picker.');
     return persist(next);

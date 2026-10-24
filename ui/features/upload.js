@@ -109,7 +109,7 @@
   }
   async function handleAction(action,id,ctx) {
     const s=ctx.getState();
-    if(action==='import-audio'){const r=await window.studio.importAudio();await ctx.update(x=>Object.assign(x,r.state));ctx.notice(r.count?`${r.count} track${r.count===1?'':'s'} imported.`:'No new tracks imported.');return;}
+    if(action==='import-audio'){const r=await window.studio.importAudio();await ctx.update(x=>Object.assign(x,r.state));const legacyNote=r.legacyUnhashedTracks?` ${r.legacyUnhashedTracks} older track${r.legacyUnhashedTracks===1?' has':'s have'} no saved content hash, so their files were not checked for content duplicates.`:'';ctx.notice(r.count?`${r.count} track${r.count===1?'':'s'} imported. Exact-content duplicates were skipped.${legacyNote}`:`No new tracks imported.${legacyNote}`);return;}
     if(action==='connect')return ctx.openPage('soundcloud');
     if(action==='setup-import')return handleAction('import-audio',id,ctx);
     if(action==='setup-connect')return ctx.openPage('soundcloud');

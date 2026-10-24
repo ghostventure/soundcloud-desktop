@@ -19,6 +19,8 @@ const diagnosticEvents=[];
 const safeDiagnosticCodes=new Set(['SC_UPLOAD_UNCERTAIN','EACCES','EADDRINUSE','EAI_AGAIN','ECONNRESET','ECONNREFUSED','EHOSTUNREACH','EIO','EINVAL','EISDIR','ENETUNREACH','ENOSPC','ENOENT','ENOTDIR','EPIPE','EPERM','ETIMEDOUT']);
 const urls={home:'https://soundcloud.com',upload:'https://soundcloud.com/upload',insights:'https://soundcloud.com/you/insights',tracks:'https://soundcloud.com/you/tracks',api:'https://developers.soundcloud.com/docs/api/register-app'};
 const audioExtensions=new Set(['.mp3','.wav','.flac','.ogg','.m4a','.aac','.aiff']);
+const contentHashPattern=/^[a-f0-9]{64}$/i;
+const workspaceBackupFormat='soundcloud-desktop-workspace-backup';
 function theme(value){ if(nativeTheme.themeSource!==value)nativeTheme.themeSource=value; const dark=nativeTheme.shouldUseDarkColors; win?.setTitleBarOverlay({color:dark?'#191a1d':'#f2f3f5',symbolColor:dark?'#f5f5f5':'#222222',height:44}); }
 function createWindow(){
  win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'Soundcloud Desktop — Artist workspace',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:!app.isPackaged}});
@@ -371,17 +373,46 @@ async function collectBackendHealth(){
  return {generatedAt:new Date().toISOString(),workspace,connection};
 }
 async function addAudio(paths){
- const s=store.read(),seen=new Set(s.tracks.map(track=>track.file));let count=0;
- if(!Array.isArray(paths))return {state:s,count};
+ const s=store.read(),seenPaths=new Set(s.tracks.map(track=>track.file)),knownHashes=new Map();let count=0;
+ for(const track of s.tracks){
+  if(!contentHashPattern.test(track.contentHash||'')||!Number.isSafeInteger(track.contentHashSize)||track.contentHashSize<0)continue;
+  const key=track.contentHashSize,rows=knownHashes.get(key)||[];rows.push(track);knownHashes.set(key,rows);
+ }
+ if(!Array.isArray(paths))return {state:s,count,legacyUnhashedTracks:s.tracks.filter(track=>!contentHashPattern.test(track.contentHash||'')).length};
  for(const file of paths){
-  if(typeof file!=='string'||seen.has(file))continue;
+  if(typeof file!=='string'||seenPaths.has(file))continue;
   const originalExt=path.extname(file),ext=originalExt.toLowerCase();if(!audioExtensions.has(ext))continue;
   let stat;try{stat=await fs.promises.stat(file);}catch{continue;}
   if(!stat.isFile())continue;
-  seen.add(file);
-  s.tracks.unshift({id:randomUUID(),title:path.basename(file,originalExt),file,format:ext.slice(1).toUpperCase(),size:stat.size,status:'Draft',genre:'',notes:'',credits:'',link:'',added:new Date().toISOString()});count++;
+  const imported=await hashAudioFile(file,stat);
+  if(!imported)throw Error('An audio file changed while it was being imported. Retry the import after the file finishes copying.');
+  seenPaths.add(file);
+  let duplicate=false;
+  for(const prior of knownHashes.get(imported.size)||[]){
+   if(String(prior.contentHash).toLowerCase()!==imported.sha256)continue;
+   if(typeof prior.file==='string'){
+    try{
+     const current=await fs.promises.stat(prior.file);
+     if(!current.isFile()||current.size!==prior.contentHashSize||current.mtimeMs!==prior.contentHashMtimeMs||current.ctimeMs!==prior.contentHashCtimeMs)continue;
+    }catch(error){if(error.code!=='ENOENT')continue;}
+   }
+   duplicate=true;break;
+  }
+  if(duplicate)continue;
+  const track={id:randomUUID(),title:path.basename(file,originalExt),file,format:ext.slice(1).toUpperCase(),size:imported.size,contentHash:imported.sha256,contentHashSize:imported.size,contentHashMtimeMs:imported.mtimeMs,contentHashCtimeMs:imported.ctimeMs,status:'Draft',genre:'',notes:'',credits:'',link:'',added:new Date().toISOString()};
+  s.tracks.unshift(track);const rows=knownHashes.get(imported.size)||[];rows.push(track);knownHashes.set(imported.size,rows);count++;
  }
- const saved=await store.writeAsync(s);return {state:saved,count};
+ const saved=count?await store.writeAsync(s):s;
+ return {state:saved,count,legacyUnhashedTracks:saved.tracks.filter(track=>!contentHashPattern.test(track.contentHash||'')).length};
+}
+async function hashAudioFile(file,initialStat){
+ const before=initialStat||await fs.promises.stat(file);
+ if(!before.isFile()||!Number.isSafeInteger(before.size)||before.size<0)return null;
+ const hash=crypto.createHash('sha256');
+ for await(const chunk of fs.createReadStream(file))hash.update(chunk);
+ const after=await fs.promises.stat(file);
+ if(!after.isFile()||before.dev!==after.dev||before.ino!==after.ino||before.size!==after.size||before.mtimeMs!==after.mtimeMs||before.ctimeMs!==after.ctimeMs)return null;
+ return {sha256:hash.digest('hex'),size:after.size,mtimeMs:after.mtimeMs,ctimeMs:after.ctimeMs};
 }
 async function saveArtwork(file){
  const stat=await fs.promises.stat(file);if(!stat.isFile()||stat.size>10*1024*1024)throw Error('Choose artwork smaller than 10 MB.');
@@ -400,12 +431,25 @@ function restorePreview(current,incoming){
  return lines.join('\n');
 }
 async function readWorkspaceBackup(file){
- const maxBytes=32*1024*1024,stat=await fs.promises.stat(file);
+ const maxBytes=maxWorkspaceBytes,stat=await fs.promises.stat(file);
  if(!stat.isFile())throw Error('Choose a workspace backup file.');
  if(stat.size>maxBytes)throw Error('Workspace backups must be 32 MB or smaller.');
  const chunks=[];let total=0;
  for await(const chunk of fs.createReadStream(file,{start:0,end:maxBytes})) { total+=chunk.length;if(total>maxBytes)throw Error('Workspace backups must be 32 MB or smaller.');chunks.push(chunk); }
- return Buffer.concat(chunks,total).toString('utf8');
+ let parsed;try{parsed=JSON.parse(Buffer.concat(chunks,total).toString('utf8'));}catch{throw Error('The selected workspace backup is not valid JSON.');}
+ if(plainObject(parsed)&&parsed.format===workspaceBackupFormat){
+  if(parsed.version!==1||!plainObject(parsed.workspace)||typeof parsed.sha256!=='string'||!/^[a-f0-9]{64}$/i.test(parsed.sha256))throw Error('The workspace backup integrity envelope is invalid.');
+  const expected=Buffer.from(parsed.sha256,'hex'),actual=crypto.createHash('sha256').update(JSON.stringify(parsed.workspace),'utf8').digest();
+  if(!crypto.timingSafeEqual(expected,actual))throw Error('The workspace backup checksum does not match. The file may have changed or become corrupted.');
+  return {workspace:parsed.workspace,checksumVerified:true};
+ }
+ return {workspace:parsed,checksumVerified:false};
+}
+function serializeWorkspaceBackup(workspace){
+ const sha256=crypto.createHash('sha256').update(JSON.stringify(workspace),'utf8').digest('hex');
+ const contents=JSON.stringify({format:workspaceBackupFormat,version:1,sha256,workspace},null,2);
+ if(Buffer.byteLength(contents,'utf8')>maxWorkspaceBytes)throw Error('Workspace backups must be 32 MB or smaller.');
+ return contents;
 }
 function createUploadJournal(dir){
  const file=path.join(dir,'upload-jobs.json');let jobs=[];
@@ -564,11 +608,12 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   handler('audio:reveal',id=>{const t=store.read().tracks.find(t=>t.id===id);if(t && fs.existsSync(t.file))shell.showItemInFolder(t.file);else throw Error('The original file was moved or removed.');});
   handler('audio:artwork',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Cover artwork',extensions:['png','jpg','jpeg']}]});if(r.canceled)return store.read();const s=store.read();const t=s.tracks.find(t=>t.id===id);if(!t)throw Error('Track not found.');t.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
   handler('artwork:pick',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Artwork',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled)return store.read();const s=store.read();const release=s.releases.find(r=>r.id===id);if(!release)throw Error('Release not found');release.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
-  handler('workspace:backup',async()=>{const r=await dialog.showSaveDialog(win,{defaultPath:'Soundcloud Desktop-workspace.json',filters:[{name:'Workspace backup',extensions:['json']}]});if(!r.canceled){await store.flush();await fs.promises.writeFile(r.filePath,JSON.stringify(store.read(),null,2),'utf8');return true;}return false;});
+  handler('workspace:backup',async()=>{const r=await dialog.showSaveDialog(win,{defaultPath:'Soundcloud Desktop-workspace.json',filters:[{name:'Workspace backup',extensions:['json']}]});if(!r.canceled){await store.flush();await fs.promises.writeFile(r.filePath,serializeWorkspaceBackup(store.read()),'utf8');return true;}return false;});
   handler('workspace:restore',async()=>{
    const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Workspace backup',extensions:['json']}]});if(r.canceled)return null;
-   const {validate}=require('./store.cjs'),next=validate(JSON.parse(await readWorkspaceBackup(r.filePaths[0]))),current=store.read();
-   const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Cancel','Restore workspace'],defaultId:0,cancelId:0,message:'Review workspace restore',detail:`Preview of changes if restored:\n${restorePreview(current,next)}\n\nThis replaces the current workspace. A copy will be saved first. Audio and artwork files are referenced, not included.`});
+   const {validate}=require('./store.cjs'),backup=await readWorkspaceBackup(r.filePaths[0]),next=validate(backup.workspace),current=store.read();
+   const integrityNote=backup.checksumVerified?'The SHA-256 checksum matches and can detect accidental changes. It does not prove who created the backup.':'This legacy raw JSON backup has no checksum; its workspace structure will still be validated.';
+   const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Cancel','Restore workspace'],defaultId:0,cancelId:0,message:'Review workspace restore',detail:`Preview of changes if restored:\n${restorePreview(current,next)}\n\n${integrityNote} This replaces the current workspace. A copy will be saved first. Audio and artwork files are referenced, not included.`});
    if(answer.response!==1)return null;await store.flush();if(fs.existsSync(store.file))await fs.promises.copyFile(store.file,store.file+'.before-restore-'+Date.now()+'.json');return store.writeAsync(next);
   });
   handler('clipboard:copy',text=>{if(typeof text!=='string'||text.length>100000)throw Error('Invalid clipboard text');clipboard.writeText(text);return true;});
