@@ -197,7 +197,7 @@ async function readJsonBounded(response, limit = apiResponseByteLimit, deadlineA
 
 function snapshotTrack(track) {
   const urn = validTrackUrn(track?.urn) || validTrackUrn(track?.id);
-  const legacyId = validLegacyTrackId(track?.id);
+  const legacyId = validLegacyTrackId(track?.id) || validLegacyTrackId(track?.legacy_id);
   if (!isPlainObject(track) || (!urn && !legacyId) || (track.urn !== undefined && track.urn !== null && !validTrackUrn(track.urn)) || typeof track.title !== 'string' || track.title.length > 1000) {
     throw apiError('SoundCloud returned an invalid track record. The previous snapshot was preserved.', { code: 'SC_INVALID_TRACK' });
   }
