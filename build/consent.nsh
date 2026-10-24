@@ -11,6 +11,8 @@ Var SCMConsentDialog
 Var SCMConsentText
 Var SCMConsentCheck
 Var SCMConsentExisting
+Var SCMConsentVerifyTimestamp
+Var SCMConsentVerifyCategories
 Var SCMConsentState
 Var SCMConsentStamp
 Var SCMConsentParts
@@ -90,10 +92,16 @@ Function SCManagerConsentLeave
   WriteRegStr HKCU "${SC_MANAGER_CONSENT_KEY}" "AcceptedAtLocal" "$SCMConsentStamp"
   WriteRegStr HKCU "${SC_MANAGER_CONSENT_KEY}" "Categories" "copyright-rights,legal-privacy,soundcloud-third-party-services,windows-runtime,service-network-use"
   ReadRegStr $SCMConsentExisting HKCU "${SC_MANAGER_CONSENT_KEY}" "Version"
+  ReadRegStr $SCMConsentVerifyTimestamp HKCU "${SC_MANAGER_CONSENT_KEY}" "AcceptedAtLocal"
+  ReadRegStr $SCMConsentVerifyCategories HKCU "${SC_MANAGER_CONSENT_KEY}" "Categories"
   ${If} $SCMConsentExisting != "${SC_MANAGER_CONSENT_VERSION}"
+  ${OrIf} $SCMConsentVerifyTimestamp != $SCMConsentStamp
+  ${OrIf} $SCMConsentVerifyCategories != "copyright-rights,legal-privacy,soundcloud-third-party-services,windows-runtime,service-network-use"
+    DeleteRegValue HKCU "${SC_MANAGER_CONSENT_KEY}" "Version"
     MessageBox MB_ICONSTOP "Setup could not save your consent on this Windows account. No app files have been installed."
     Abort
   ${EndIf}
+
 FunctionEnd
 
 Function SCManagerOpenTerms
