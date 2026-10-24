@@ -14,6 +14,7 @@ let win,store,tray,uploadController,account,uploadJournal; let quitting=false;
 let updateDownloadController=null,updateDownloadActive=false,updateInstallActive=false;
 const updateRepo={owner:'ghostventure',name:'soundcloud-desktop'};
 const updateVersionPattern=/^v?(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/;
+const recoveryCandidateIdPattern=/^(?:previous|workspace-\d{13}-[a-f0-9]{64}\.json)$/i;
 const updateMaxBytes=250*1024*1024;
 const diagnosticEvents=[];
 const safeDiagnosticCodes=new Set(['SC_UPLOAD_UNCERTAIN','EACCES','EADDRINUSE','EAI_AGAIN','ECONNRESET','ECONNREFUSED','EHOSTUNREACH','EIO','EINVAL','EISDIR','ENETUNREACH','ENOSPC','ENOENT','ENOTDIR','EPIPE','EPERM','ETIMEDOUT']);
@@ -112,6 +113,8 @@ const ipcContracts={
  'update:open-release':{args:[stringArg('update version',32,{min:5,pattern:updateVersionPattern})],limit:5,window:60000},
  'workspace:read':{args:[],limit:120,window:10000},
  'workspace:save':{args:[workspaceArg],limit:30,window:10000},
+ 'workspace:recovery-candidates':{args:[],limit:10,window:60000},
+ 'workspace:recovery-restore':{args:[stringArg('recovery candidate ID',100,{min:1,pattern:recoveryCandidateIdPattern})],limit:3,window:60000},
  'audio:import':{args:[],limit:10,window:10000},
  'audio:drop':{args:[value=>{
   if(!Array.isArray(value)||value.length>500)throw Error('Choose no more than 500 audio files at once.');
@@ -419,6 +422,16 @@ async function saveArtwork(file){
  const dir=path.join(app.getPath('userData'),'artwork');await fs.promises.mkdir(dir,{recursive:true});
  const dest=path.join(dir,randomUUID()+path.extname(file));await fs.promises.copyFile(file,dest);return dest;
 }
+function getWorkspaceRecoveryCandidates(){
+ if(!store||typeof store.recoveryCandidates!=='function')throw Error('Workspace recovery is not available in this build.');
+ const candidates=store.recoveryCandidates();
+ if(!Array.isArray(candidates)||candidates.length>100)throw Error('Workspace recovery returned an unsupported candidate list.');
+ return candidates.map(candidate=>{
+  if(!plainObject(candidate)||typeof candidate.id!=='string'||!recoveryCandidateIdPattern.test(candidate.id)||typeof candidate.capturedAt!=='string'||candidate.capturedAt.length>40||!Number.isFinite(Date.parse(candidate.capturedAt))||typeof candidate.profileName!=='string'||candidate.profileName.length>256||!['trackCount','releaseCount','campaignCount'].every(key=>Number.isSafeInteger(candidate[key])&&candidate[key]>=0&&candidate[key]<=10000))throw Error('Workspace recovery returned an invalid candidate.');
+  const profileName=candidate.profileName.replace(/[\u0000-\u001f\u007f]/g,' ').trim().slice(0,256)||'Unnamed profile';
+  return {id:candidate.id,capturedAt:new Date(candidate.capturedAt).toISOString(),profileName,trackCount:candidate.trackCount,releaseCount:candidate.releaseCount,campaignCount:candidate.campaignCount};
+ });
+}
 function restorePreview(current,incoming){
  const lines=[];
  for(const [label,key] of [['Tracks','tracks'],['Releases','releases'],['Campaigns','campaigns']]){
@@ -602,6 +615,20 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   handler('workspace:read',()=>store.read());
   handler('workspace:save',s=>{ // Renderer may edit metadata but cannot grant itself filesystem access.
    return store.writeRenderer(s);
+  });
+  handler('workspace:recovery-candidates',()=>getWorkspaceRecoveryCandidates());
+  handler('workspace:recovery-restore',async id=>{
+   if(typeof store.restoreRecovery!=='function')throw Error('Workspace recovery is not available in this build.');
+   const candidate=getWorkspaceRecoveryCandidates().find(item=>item.id===id);
+   if(!candidate)throw Error('That recovery point is no longer available. Review the list again.');
+   const detail=`Captured: ${new Date(candidate.capturedAt).toLocaleString()}\nArtist profile: ${candidate.profileName}\nTracks: ${candidate.trackCount}\nReleases: ${candidate.releaseCount}\nCampaigns: ${candidate.campaignCount}\n\nThe current workspace will be copied before restoring. Audio and artwork files remain references and are not included in recovery points.`;
+   const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Restore recovery point'],defaultId:0,cancelId:0,message:'Review workspace recovery',detail});
+   if(answer.response!==1)return null;
+   await store.flush();
+   if(!fs.existsSync(store.file))await store.writeAsync(store.read());
+   const savedCopy=`${store.file}.before-recovery-${Date.now()}-${randomUUID()}.json`;
+   await fs.promises.copyFile(store.file,savedCopy);
+   return await store.restoreRecovery(id);
   });
   handler('audio:import',async()=>{const r=await dialog.showOpenDialog(win,{title:'Add music to your library',properties:['openFile','multiSelections'],filters:[{name:'Audio',extensions:[...audioExtensions].map(x=>x.slice(1))}]});return addAudio(r.canceled?[]:r.filePaths);});
   handler('audio:drop',paths=>addAudio(paths));
