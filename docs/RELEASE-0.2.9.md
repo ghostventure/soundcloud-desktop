@@ -12,11 +12,11 @@ The original item-by-item titles for ranks 51-100 were not retained in the repos
 | 75 | Partial | Portable builds can check the latest stable GitHub release and open its validated official release page. In-place portable replacement is unsupported; replace the executable manually. |
 | 76-86 | Implemented (11) | Integrated account, upload, workspace, and API-status capabilities are described below; original individual rank titles and ordinal assignment were not retained. |
 | 87 | Partial | New imports receive a SHA-256 content hash and can be compared with cached hashes. Existing records without a hash are not backfilled or deduplicated. |
-| 88 | Unsupported | Backing up audio/artwork bytes is not supported; workspace backups keep file references only. |
+| 88 | Unsupported | Media-inclusive backups are not provided. Workspace backups keep audio/artwork file references only. |
 | 89 | Implemented | Workspace backup checksum envelope, with backwards-compatible restore of legacy raw JSON. |
 | 90 | Implemented | Settings recovery-candidate review and confirmed restore, with the current workspace preserved first. |
 | 91-94 | Implemented (4) | Verified integrated capabilities are described below; original individual rank titles and ordinal assignment were not retained. |
-| 95-99 | Unsupported (5) | The original titles were not retained, and no corresponding capability is claimed in this release note. |
+| 95-99 | Unsupported (5) | The source does not resume sync from a remote cursor or guarantee gap detection (95-96); SoundCloud provides no upload idempotency contract or full processing-history endpoint in this integration (97-98); publication scheduling remains local planning only (99). These are verified capability limits, not reconstructed original rank titles. |
 | 100 | Implemented | The integrated source keeps a bounded local daily catalog-metric history; the original rank title was not retained. |
 
 ## Implemented capability details
