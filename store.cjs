@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, createHash } = require('node:crypto');
+const workspaceByteLimit=128*1024*1024;
 const blank = () => ({version:1, profile:{name:'Your studio', theme:'dark', genre:'', location:'', tagline:'', bio:'', soundcloudUrl:'', website:'', firstRunComplete:false}, tracks:[], releases:[], campaigns:[]});
 function validate(s) {
   if (!s || typeof s !== 'object' || Array.isArray(s) || s.version !== 1 || !s.profile || typeof s.profile !== 'object' || Array.isArray(s.profile) || !['tracks','releases','campaigns'].every(k => Array.isArray(s[k]))) throw Error('This is not a Soundcloud Desktop workspace backup.');
@@ -17,9 +18,28 @@ function validate(s) {
   for (const c of s.campaigns) if (!['Planned','In progress','Done'].includes(c.status) || typeof c.date !== 'string' || (c.channel !== undefined && typeof c.channel !== 'string') || (c.caption !== undefined && typeof c.caption !== 'string')) throw Error('Invalid campaign.');
   return s;
 }
+function serializeWorkspace(value){const bytes=Buffer.from(JSON.stringify(value),'utf8');if(bytes.length>workspaceByteLimit)throw Error('Workspace data exceeds the 128 MB safe storage limit. Remove old records or shorten large notes before saving.');return bytes;}
 function createStore(dir) {
   fs.mkdirSync(dir,{recursive:true}); const file=path.join(dir,'workspace.json');
+  const previousFile=`${file}.previous`;
   let state;
+  let diskHash=null;
+  let recoveredFromPrevious=false;
+  let queuedWrites=0;
+  const hashBytes=bytes=>createHash('sha256').update(bytes).digest('hex');
+  const readCurrentBytes=()=>{try{return fs.readFileSync(file);}catch(error){if(error.code==='ENOENT')return null;throw error;}};
+  const readPreviousBytes=()=>{const info=fs.lstatSync(previousFile);if(!info.isFile()||info.isSymbolicLink()||info.size>workspaceByteLimit)throw Error('Invalid previous workspace file.');return fs.readFileSync(previousFile);};
+  const ensureWorkspaceUnchanged=bytes=>{
+    const currentHash=bytes===null?null:hashBytes(bytes);
+    if(currentHash!==diskHash)throw Error('The workspace file changed outside Soundcloud Desktop. Reopen the app before saving so the newer data is not overwritten.');
+  };
+  const preservePrevious=bytes=>{
+    if(bytes===null||recoveredFromPrevious)return;
+    const temp=`${previousFile}.${randomUUID()}.tmp`;
+    let fd;
+    try{fd=fs.openSync(temp,'wx',0o600);fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;fs.renameSync(temp,previousFile);}
+    catch(error){if(fd!==undefined){try{fs.closeSync(fd);}catch{}}try{fs.rmSync(temp,{force:true});}catch{}throw error;}
+  };
   const tempPattern = /^workspace\.json\.[0-9a-f-]{36}\.tmp$/i;
   const tempFiles = () => fs.readdirSync(dir).filter(name => tempPattern.test(name)).map(name => {
     const full = path.join(dir, name);
@@ -29,8 +49,17 @@ function createStore(dir) {
     } catch { return null; }
   }).filter(Boolean);
   if (fs.existsSync(file)) {
-    state=validate(JSON.parse(fs.readFileSync(file,'utf8')));
-    for (const candidate of tempFiles()) {
+    const primaryBytes=fs.readFileSync(file);
+    diskHash=hashBytes(primaryBytes);
+    try { state=validate(JSON.parse(primaryBytes.toString('utf8'))); }
+    catch (primaryError) {
+      try {
+        const previousBytes=readPreviousBytes();
+        state=validate(JSON.parse(previousBytes.toString('utf8')));
+        recoveredFromPrevious=true;
+      } catch { throw primaryError; }
+    }
+    if(!recoveredFromPrevious)for (const candidate of tempFiles()) {
       if (candidate.age < 24*60*60*1000) continue;
       try {
         validate(JSON.parse(fs.readFileSync(candidate.full,'utf8')));
@@ -38,28 +67,40 @@ function createStore(dir) {
       } catch { try { fs.rmSync(candidate.full,{force:true}); } catch { /* Leave a locked scratch file for a later startup. */ } }
     }
   } else {
-    const candidates=tempFiles();
-    if (candidates.length===1 && candidates[0].age>=24*60*60*1000) {
-      try {
-        state=validate(JSON.parse(fs.readFileSync(candidates[0].full,'utf8')));
-        fs.linkSync(candidates[0].full,file);
-        try { fs.rmSync(candidates[0].full,{force:true}); } catch { /* The valid workspace is also present at the primary path. */ }
-      } catch { state=fs.existsSync(file)?validate(JSON.parse(fs.readFileSync(file,'utf8'))):blank(); }
-    } else state=blank();
+    try {
+      state=validate(JSON.parse(readPreviousBytes().toString('utf8')));
+      recoveredFromPrevious=true;
+    } catch {
+      const candidates=tempFiles();
+      if (candidates.length===1 && candidates[0].age>=24*60*60*1000) {
+        try {
+          const candidateBytes=fs.readFileSync(candidates[0].full);
+          state=validate(JSON.parse(candidateBytes.toString('utf8')));
+          fs.linkSync(candidates[0].full,file);
+          diskHash=hashBytes(candidateBytes);
+          try { fs.rmSync(candidates[0].full,{force:true}); } catch { /* The valid workspace is also present at the primary path. */ }
+        } catch { state=fs.existsSync(file)?validate(JSON.parse(fs.readFileSync(file,'utf8'))):blank(); }
+      } else state=blank();
+    }
   }
   let pendingWrite=Promise.resolve();
   function persist(next){
+    const bytes=serializeWorkspace(next);
+    queuedWrites++;
     const task=pendingWrite.then(async()=>{
       const temp=`${file}.${randomUUID()}.tmp`;
       let handle;
       try {
+        const currentBytes=readCurrentBytes();ensureWorkspaceUnchanged(currentBytes);preservePrevious(currentBytes);
         handle=await fs.promises.open(temp,'wx');
-        await handle.writeFile(JSON.stringify(next),'utf8');
+        await handle.writeFile(bytes);
         await handle.sync();
         await handle.close();
         handle=undefined;
+        ensureWorkspaceUnchanged(readCurrentBytes());
         await fs.promises.rename(temp,file);
         state=next;
+        diskHash=hashBytes(bytes);recoveredFromPrevious=false;
         return structuredClone(state);
       } catch(error) {
         if(handle) await handle.close().catch(()=>{});
@@ -67,10 +108,10 @@ function createStore(dir) {
         throw error;
       }
     });
-    pendingWrite=task.then(()=>undefined,()=>undefined);
+    pendingWrite=task.then(()=>{queuedWrites--;},()=>{queuedWrites--;});
     return task;
   }
-  function write(value){const next=structuredClone(value);validate(next);const temp=`${file}.${randomUUID()}.tmp`;let fd;try{fd=fs.openSync(temp,'wx');fs.writeFileSync(fd,JSON.stringify(next),'utf8');fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;fs.renameSync(temp,file);state=next;return structuredClone(state);}catch(error){if(fd!==undefined){try{fs.closeSync(fd);}catch{}}try{fs.rmSync(temp,{force:true});}catch{}throw error;}}
+  function write(value){if(queuedWrites)throw Error('A workspace update is already being saved.');const next=structuredClone(value);validate(next);const bytes=serializeWorkspace(next);const temp=`${file}.${randomUUID()}.tmp`;let fd;try{const currentBytes=readCurrentBytes();ensureWorkspaceUnchanged(currentBytes);preservePrevious(currentBytes);fd=fs.openSync(temp,'wx');fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;ensureWorkspaceUnchanged(readCurrentBytes());fs.renameSync(temp,file);state=next;diskHash=hashBytes(bytes);recoveredFromPrevious=false;return structuredClone(state);}catch(error){if(fd!==undefined){try{fs.closeSync(fd);}catch{}}try{fs.rmSync(temp,{force:true});}catch{}throw error;}}
   function writeAsync(value){const next=structuredClone(value);validate(next);return persist(next);}
   function writeRenderer(value){
     const next=structuredClone(value);validate(next);
@@ -89,7 +130,8 @@ function createStore(dir) {
     let directoryReadable=false,directoryWritable=false,workspaceReadable=true,workspaceValid=true;
     try{fs.accessSync(dir,fs.constants.R_OK);directoryReadable=true;}catch{}
     try{fs.accessSync(dir,fs.constants.W_OK);directoryWritable=true;}catch{}
-    try{if(fs.existsSync(file)){fs.accessSync(file,fs.constants.R_OK);validate(JSON.parse(fs.readFileSync(file,'utf8')));}}catch{workspaceReadable=false;workspaceValid=false;}
+    try{const bytes=readCurrentBytes();if(bytes!==null){fs.accessSync(file,fs.constants.R_OK);validate(JSON.parse(bytes.toString('utf8')));if(hashBytes(bytes)!==diskHash)workspaceValid=false;}}catch{workspaceReadable=false;workspaceValid=false;}
+    if(recoveredFromPrevious)workspaceValid=false;
     return {ok:directoryReadable&&directoryWritable&&workspaceReadable&&workspaceValid,checks:{dataDirectoryReadable:directoryReadable,dataDirectoryWritable:directoryWritable,workspaceReadable,workspaceValid}};
   }
   return {read:()=>structuredClone(state),write,writeAsync,writeRenderer,asset,health,flush:()=>pendingWrite,file};

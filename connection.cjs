@@ -16,12 +16,13 @@ const catalogExtraValueLimit = 512;
 const catalogExtraByteLimit = 256 * 1024;
 const catalogFreshnessWindowMs = 24 * 60 * 60 * 1000;
 const syncCheckpointByteLimit = 4096;
+const accountCooldownByteLimit = 4096;
 const apiCallTimeoutMs = 30000;
 const catalogSyncDeadlineMs = 5 * 60 * 1000;
 const apiCircuitFailureLimit = 3;
 const apiCircuitCooldownMs = 30000;
 
-const apiCircuit = { consecutiveFailures: 0, openedUntil: 0, probeInFlight: false };
+const apiCircuitByAccount = new Map();
 const catalogFieldPolicy = Object.freeze({
   id: { source: 'soundcloud-api', conflict: 'remote-identity' },
   urn: { source: 'soundcloud-api', conflict: 'remote-identity' },
@@ -96,7 +97,17 @@ function requestHeaderTimeout(deadlineAt) {
   return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
-function enterApiCircuit() {
+function apiCircuitFor(accountId) {
+  let circuit = apiCircuitByAccount.get(accountId);
+  if (!circuit) {
+    circuit = { consecutiveFailures: 0, openedUntil: 0, probeInFlight: false };
+    apiCircuitByAccount.set(accountId, circuit);
+  }
+  return circuit;
+}
+
+function enterApiCircuit(accountId) {
+  const apiCircuit = apiCircuitFor(accountId);
   const now = Date.now();
   if (apiCircuit.openedUntil > now) {
     const wait = apiCircuit.openedUntil - now;
@@ -110,13 +121,15 @@ function enterApiCircuit() {
   if (apiCircuit.openedUntil) apiCircuit.probeInFlight = true;
 }
 
-function recordApiSuccess() {
+function recordApiSuccess(accountId) {
+  const apiCircuit = apiCircuitFor(accountId);
   apiCircuit.consecutiveFailures = 0;
   apiCircuit.openedUntil = 0;
   apiCircuit.probeInFlight = false;
 }
 
-function recordApiFailure(error) {
+function recordApiFailure(error, accountId) {
+  const apiCircuit = apiCircuitFor(accountId);
   apiCircuit.probeInFlight = false;
   const counts = error?.statusCode >= 500 || ['SC_NETWORK_TIMEOUT', 'SC_NETWORK_UNAVAILABLE', 'SC_NETWORK_ERROR', 'SC_DEADLINE_EXCEEDED'].includes(error?.code);
   if (!counts) return;
@@ -198,7 +211,8 @@ async function readJsonBounded(response, limit = apiResponseByteLimit, deadlineA
   }
   if (!response.body) throw apiError('SoundCloud returned an empty response.', { code: 'SC_INVALID_RESPONSE' });
   const reader = response.body.getReader();
-  const chunks = [];
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let text = '';
   let size = 0;
   try {
     while (true) {
@@ -206,16 +220,19 @@ async function readJsonBounded(response, limit = apiResponseByteLimit, deadlineA
       if (done) break;
       size += value.byteLength;
       if (size > limit) {
-        await reader.cancel();
+        await reader.cancel().catch(() => {});
         throw apiError('SoundCloud returned a response that exceeded the safe size limit.', { code: 'SC_RESPONSE_TOO_LARGE' });
       }
-      chunks.push(Buffer.from(value));
+      try { text += decoder.decode(value, { stream: true }); }
+      catch { await reader.cancel().catch(() => {}); throw apiError('SoundCloud returned invalid UTF-8.', { code: 'SC_INVALID_RESPONSE' }); }
     }
+    try { text += decoder.decode(); }
+    catch { throw apiError('SoundCloud returned invalid UTF-8.', { code: 'SC_INVALID_RESPONSE' }); }
   } catch (error) {
-    if (error?.code === 'SC_RESPONSE_TOO_LARGE') throw error;
+    if (['SC_RESPONSE_TOO_LARGE', 'SC_INVALID_RESPONSE'].includes(error?.code)) throw error;
     throw classifyNetworkError(error, deadlineAt);
   } finally { reader.releaseLock(); }
-  try { return JSON.parse(Buffer.concat(chunks, size).toString('utf8')); }
+  try { return JSON.parse(text); }
   catch { throw apiError('SoundCloud returned invalid JSON.', { code: 'SC_INVALID_RESPONSE' }); }
 }
 
@@ -455,9 +472,22 @@ function validateSyncCheckpoint(value) {
   };
 }
 
+function validateAccountCooldowns(value) {
+  if (!isPlainObject(value) || value.version !== 1 || !Array.isArray(value.accounts) || value.accounts.length > 10 ||
+      value.accounts.some(item => !isPlainObject(item) || typeof item.accountId !== 'string' || !item.accountId || item.accountId.length > 100 ||
+        !Number.isSafeInteger(item.until) || item.until < 0)) throw Error('Saved SoundCloud cooldown state has an invalid format.');
+  const ids = new Set();
+  for (const item of value.accounts) {
+    if (ids.has(item.accountId)) throw Error('Saved SoundCloud cooldown state has duplicate accounts.');
+    ids.add(item.accountId);
+  }
+  return { version: 1, accounts: value.accounts.map(item => ({ accountId: item.accountId, until: item.until })) };
+}
+
 function createConnection(dir) {
   const file = path.join(dir, 'soundcloud.secure');
   const checkpointFile = path.join(dir, 'soundcloud.sync-progress.secure');
+  const cooldownFile = path.join(dir, 'soundcloud.rate-limits.secure');
   let vault = { version: 2, activeAccountId: '', accounts: [] };
   let syncCheckpoint = null;
   let pending = false;
@@ -483,10 +513,51 @@ function createConnection(dir) {
   const apiRequestsByAccount = new Map();
   const apiCooldownByAccount = new Map();
 
+  function persistAccountCooldowns() {
+    const temp = `${cooldownFile}.${crypto.randomUUID()}.tmp`;
+    let descriptor;
+    try {
+      if (!safeStorage.isEncryptionAvailable()) return false;
+      const knownAccounts = new Set(vault.accounts.map(item => item.id));
+      const value = {
+        version: 1,
+        accounts: [...apiCooldownByAccount.entries()]
+          .filter(([accountId, until]) => knownAccounts.has(accountId) && Number.isSafeInteger(until) && until > Date.now())
+          .sort((left, right) => right[1] - left[1])
+          .slice(0, 10)
+          .map(([accountId, until]) => ({ accountId, until }))
+      };
+      const encrypted = safeStorage.encryptString(JSON.stringify(validateAccountCooldowns(value)));
+      if (encrypted.byteLength > accountCooldownByteLimit) return false;
+      descriptor = fs.openSync(temp, 'wx', 0o600);
+      fs.writeFileSync(descriptor, encrypted);
+      fs.fsyncSync(descriptor);
+      fs.closeSync(descriptor);
+      descriptor = undefined;
+      fs.renameSync(temp, cooldownFile);
+      return true;
+    } catch {
+      if (descriptor !== undefined) { try { fs.closeSync(descriptor); } catch { /* Preserve the previous cooldown file. */ } }
+      try { fs.rmSync(temp, { force: true }); } catch { /* Preserve the previous cooldown file. */ }
+      return false;
+    }
+  }
+
+  function loadAccountCooldowns() {
+    try {
+      const info = fs.lstatSync(cooldownFile);
+      if (!info.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > accountCooldownByteLimit || !safeStorage.isEncryptionAvailable()) return;
+      const saved = validateAccountCooldowns(JSON.parse(safeStorage.decryptString(fs.readFileSync(cooldownFile))));
+      const knownAccounts = new Set(vault.accounts.map(item => item.id));
+      const now = Date.now();
+      for (const item of saved.accounts) if (knownAccounts.has(item.accountId) && item.until > now) apiCooldownByAccount.set(item.accountId, Math.min(item.until, now + 24 * 60 * 60 * 1000));
+    } catch { /* A damaged optional cooldown file never blocks account recovery. */ }
+  }
+
   function enforceAccountCooldown(record) {
     const until = apiCooldownByAccount.get(record.id) || 0;
     if (until <= Date.now()) {
-      apiCooldownByAccount.delete(record.id);
+      if (apiCooldownByAccount.delete(record.id)) persistAccountCooldowns();
       return;
     }
     const wait = until - Date.now();
@@ -497,7 +568,9 @@ function createConnection(dir) {
 
   function applyAccountCooldown(record, wait) {
     const delay = Number.isFinite(wait) ? wait : 1000;
-    apiCooldownByAccount.set(record.id, Date.now() + Math.max(0, delay));
+    const until = Math.max(apiCooldownByAccount.get(record.id) || 0, Date.now() + Math.max(0, delay));
+    apiCooldownByAccount.set(record.id, until);
+    persistAccountCooldowns();
   }
 
   function clearAccountTokens(record) {
@@ -590,6 +663,7 @@ function createConnection(dir) {
 
   if (needsMigration) persist();
   syncCheckpoint = loadSyncCheckpoint();
+  loadAccountCooldowns();
 
   function active() {
     return vault.accounts.find(item => item.id === vault.activeAccountId) || null;
@@ -630,7 +704,7 @@ function createConnection(dir) {
     catch { vaultWritable = false; }
     const record = active();
     const accountCooldownMs = Math.max(0, (apiCooldownByAccount.get(record?.id) || 0) - Date.now());
-    const circuitCooldownMs = Math.max(0, apiCircuit.openedUntil - Date.now());
+    const circuitCooldownMs = Math.max(0, (apiCircuitByAccount.get(record?.id)?.openedUntil || 0) - Date.now());
     return {
       ok: encryptionAvailable && vaultReadable && vaultWritable,
       checks: {
@@ -730,7 +804,7 @@ function createConnection(dir) {
   async function requestOnce(target, record, { deadlineAt, retriedAuth = false } = {}) {
     enforceAccountCooldown(record);
     await refreshIfNeeded(record, deadlineAt);
-    enterApiCircuit();
+    enterApiCircuit(record.id);
     let current = target;
     let response;
     for (let redirects = 0; redirects <= 3; redirects++) {
@@ -742,7 +816,7 @@ function createConnection(dir) {
         });
       } catch (error) {
         const classified = classifyNetworkError(error, deadlineAt);
-        recordApiFailure(classified);
+        recordApiFailure(classified, record.id);
         throw classified;
       }
       if (response.status >= 500) {
@@ -751,10 +825,10 @@ function createConnection(dir) {
         const failure = apiError(response.status === 503 ? boundedRetryMessage(response.status, wait) : `SoundCloud returned ${response.status}. Check the service status and try again.`, {
           code: response.status === 503 ? 'SC_TEMPORARILY_UNAVAILABLE' : 'SC_SERVER_ERROR', statusCode: response.status, retryAfterMs: wait
         });
-        recordApiFailure(failure);
+        recordApiFailure(failure, record.id);
         throw failure;
       }
-      recordApiSuccess();
+      recordApiSuccess(record.id);
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
       const location = response.headers.get('location');
       await response.body?.cancel();
@@ -788,7 +862,7 @@ function createConnection(dir) {
     }
     try { return await readJsonBounded(response, apiResponseByteLimit, deadlineAt); }
     catch (error) {
-      if (['SC_NETWORK_TIMEOUT', 'SC_NETWORK_UNAVAILABLE', 'SC_NETWORK_ERROR', 'SC_DEADLINE_EXCEEDED'].includes(error?.code)) recordApiFailure(error);
+      if (['SC_NETWORK_TIMEOUT', 'SC_NETWORK_UNAVAILABLE', 'SC_NETWORK_ERROR', 'SC_DEADLINE_EXCEEDED'].includes(error?.code)) recordApiFailure(error, record.id);
       throw error;
     }
   }
@@ -813,7 +887,9 @@ function createConnection(dir) {
     try {
       syncCheckpoint = checkpoint;
       persistSyncCheckpoint(checkpoint);
-      const profile = validateProfile(await request('/me', record, { deadlineAt }));
+      const profileResponse = await request('/me', record, { deadlineAt });
+      const profile = validateProfile(profileResponse);
+      const reportedTrackCount = Number.isSafeInteger(profileResponse?.track_count) && profileResponse.track_count >= 0 ? profileResponse.track_count : null;
       const tracks = [];
       const extraBudget = { usedBytes: 0 };
       let next = '/me/tracks?linked_partitioning=true&limit=200';
@@ -848,7 +924,9 @@ function createConnection(dir) {
           completedAt: syncedAt,
           durationMs: Math.max(0, completedAtMs - syncStartedAtMs),
           pageCount: pages,
-          trackCount: tracks.length
+          trackCount: tracks.length,
+          reportedTrackCount,
+          reportedTrackCountDelta: reportedTrackCount === null ? null : reportedTrackCount - tracks.length
         },
         syncedAt
       };
@@ -875,7 +953,7 @@ function createConnection(dir) {
     if (!record?.accessToken) throw Error('Connect your SoundCloud account to preview this track.');
     enforceAccountCooldown(record);
     await refreshIfNeeded(record, deadlineAt);
-    enterApiCircuit();
+    enterApiCircuit(record.id);
     const track = record.snapshot?.tracks?.find(item => String(item.id) === String(trackId) || String(item.urn || '') === String(trackId) || String(item.legacy_id || '') === String(trackId));
     if (!track || track.streamable !== true) throw Error('This track is not available for preview through the SoundCloud API.');
     const canonicalTrackUrn = validTrackUrn(track.urn) || validTrackUrn(track.id) || (validLegacyTrackId(track.legacy_id || track.id) ? `soundcloud:tracks:${validLegacyTrackId(track.legacy_id || track.id)}` : '');
@@ -888,18 +966,25 @@ function createConnection(dir) {
     for (let redirects = 0; redirects <= 3; redirects++) {
       const headers = { Accept: 'audio/*', ...requestHeaders };
       if (authenticated) headers.Authorization = 'OAuth ' + record.accessToken;
-      const timeout = requestHeaderTimeout(deadlineAt);
-      try { response = await fetch(target, { headers, redirect: 'manual', signal: timeout.signal }); }
+      let timeout;
+      try {
+        timeout = requestHeaderTimeout(deadlineAt);
+        response = await fetch(target, { headers, redirect: 'manual', signal: timeout.signal });
+      }
       catch (error) {
         const classified = classifyNetworkError(error, deadlineAt);
-        if (target.origin === 'https://api.soundcloud.com') recordApiFailure(classified);
+        if (target.origin === 'https://api.soundcloud.com') recordApiFailure(classified, record.id);
         throw classified;
-      } finally { timeout.clear(); }
+      } finally { timeout?.clear(); }
       if (target.origin === 'https://api.soundcloud.com' && response.status >= 500) {
         const failure = apiError('SoundCloud preview service is temporarily unavailable.', { code: 'SC_TEMPORARILY_UNAVAILABLE', statusCode: response.status, retryAfterMs: retryAfterMs(response) });
-        recordApiFailure(failure);
+        recordApiFailure(failure, record.id);
         await response.body?.cancel();
         throw failure;
+      }
+      if (target.origin === 'https://api.soundcloud.com') {
+        recordApiSuccess(record.id);
+        if (response.status === 429) applyAccountCooldown(record, retryAfterMs(response));
       }
       if (target.origin === 'https://api.soundcloud.com' && response.status === 401) {
         await response.body?.cancel();
@@ -909,10 +994,6 @@ function createConnection(dir) {
         }
         clearAccountTokens(record);
         throw apiError('The saved SoundCloud authorization is no longer valid. Reconnect this account to continue.', { code: 'SC_TOKEN_REVOKED', statusCode: 401 });
-      }
-      if (target.origin === 'https://api.soundcloud.com') {
-        recordApiSuccess();
-        if (response.status === 429) applyAccountCooldown(record, retryAfterMs(response));
       }
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
       const location = response.headers.get('location');
@@ -930,7 +1011,6 @@ function createConnection(dir) {
       throw Error('SoundCloud returned an unsupported preview address.');
     }
     if (![200, 206, 416].includes(response.status)) {
-      if (response.status === 429 && new URL(response.url).origin === 'https://api.soundcloud.com') applyAccountCooldown(record, retryAfterMs(response));
       await response.body?.cancel();
       throw apiError('SoundCloud could not stream this track preview.', { code: response.status === 429 ? 'SC_RATE_LIMITED' : 'SC_PREVIEW_UNAVAILABLE', statusCode: response.status, retryAfterMs: retryAfterMs(response) });
     }
@@ -992,9 +1072,13 @@ function createConnection(dir) {
     const candidate = structuredClone(vault);
     const index = candidate.accounts.findIndex(item => item.id === id);
     if (index < 0) throw Error('That saved SoundCloud account could not be found.');
+    const removedId = candidate.accounts[index].id;
     candidate.accounts.splice(index, 1);
     if (candidate.activeAccountId === id) candidate.activeAccountId = candidate.accounts[0].id;
     persist(candidate);
+    apiCooldownByAccount.delete(removedId);
+    apiCircuitByAccount.delete(removedId);
+    persistAccountCooldowns();
     return status();
   }
 
@@ -1011,7 +1095,16 @@ function createConnection(dir) {
         let timer;
         let handled = false;
         const server = http.createServer(async (req, res) => {
-          const url = new URL(req.url, redirect);
+          if (req.method !== 'GET') { res.writeHead(405, { Allow: 'GET' }).end(); return; }
+          const remoteAddress = req.socket.remoteAddress;
+          if (req.headers.host?.toLowerCase() !== '127.0.0.1:49832' || !['127.0.0.1', '::ffff:127.0.0.1'].includes(remoteAddress)) {
+            res.writeHead(400).end('Invalid authorization callback address.');
+            return;
+          }
+          let url;
+          try { url = new URL(req.url, redirect); }
+          catch { res.writeHead(400).end('Invalid authorization callback.'); return; }
+          if (url.origin !== new URL(redirect).origin) { res.writeHead(400).end('Invalid authorization callback.'); return; }
           if (url.pathname !== '/callback') { res.writeHead(404).end(); return; }
           if (handled || url.searchParams.get('state') !== state) { res.writeHead(400).end('Invalid authorization state.'); return; }
           handled = true;

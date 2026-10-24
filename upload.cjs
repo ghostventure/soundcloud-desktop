@@ -45,6 +45,15 @@ async function openStableFile(file, limit) {
   }
 }
 
+async function validateArtworkSignature(entry) {
+  const header = Buffer.alloc(12);
+  const { bytesRead } = await entry.handle.read(header, 0, header.length, 0);
+  const png = bytesRead >= 8 && header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const jpeg = bytesRead >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+  const webp = bytesRead >= 12 && header.toString('ascii', 0, 4) === 'RIFF' && header.toString('ascii', 8, 12) === 'WEBP';
+  if (!png && !jpeg && !webp) throw Error('Choose a valid PNG, JPEG, or WebP artwork file.');
+}
+
 function validateReceipt(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw uploadError('SoundCloud returned an invalid upload receipt. Check your catalog before retrying.', { code: 'SC_UPLOAD_UNCERTAIN' });
   const id = data.id;
@@ -88,7 +97,7 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
     const audio = await openStableFile(file, 4 * 1024 ** 3);
     openedFiles.push(audio);
     const cover = artwork ? await openStableFile(artwork, 4 * 1024 ** 3) : null;
-    if (cover) openedFiles.push(cover);
+    if (cover) { openedFiles.push(cover); await validateArtworkSignature(cover); }
     const fileEntries = [['asset_data', audio], ...(cover ? [['artwork_data', cover]] : [])];
 
     const boundary = `----SoundcloudDesktop${crypto.randomBytes(16).toString('hex')}`;
@@ -132,17 +141,18 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
           'Content-Length': total
         }
       }, response => {
-        let body = '';
-        response.setEncoding('utf8');
+        const responseChunks = [];
+        let responseBytes = 0;
         response.on('data', chunk => {
-          body += chunk;
-          if (Buffer.byteLength(body, 'utf8') > uploadResponseByteLimit) {
+          responseBytes += chunk.length;
+          if (responseBytes > uploadResponseByteLimit) {
             response.destroy();
             finish(ambiguousError('SoundCloud returned an unexpectedly large upload response.'));
-          }
+          } else responseChunks.push(chunk);
         });
         response.on('error', () => finish(ambiguousError('The upload response was interrupted.')));
         response.on('end', () => {
+          if (done || responseBytes > uploadResponseByteLimit) return;
           const status = response.statusCode || 0;
           if (status < 200 || status >= 300) {
             const retry = retryAfterMs(response);
@@ -157,7 +167,8 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
             return;
           }
           try {
-            const receipt = validateReceipt(JSON.parse(body));
+            const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(responseChunks, responseBytes));
+            const receipt = validateReceipt(JSON.parse(text));
             try { onProgress(100); } catch { /* UI progress reporting does not change a confirmed upload outcome. */ }
             finish(null, receipt);
           }
