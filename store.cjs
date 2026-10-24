@@ -2,6 +2,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID, createHash } = require('node:crypto');
 const workspaceByteLimit=128*1024*1024;
+const workspaceRecoveryCountLimit=8;
+const workspaceRecoveryByteLimit=256*1024*1024;
+const workspaceRecoveryIntervalMs=30*60*1000;
+const workspaceRecoveryName=/^workspace-(\d{13})-([a-f0-9]{64})\.json$/i;
 const blank = () => ({version:1, profile:{name:'Your studio', theme:'dark', genre:'', location:'', tagline:'', bio:'', soundcloudUrl:'', website:'', firstRunComplete:false}, tracks:[], releases:[], campaigns:[]});
 function validate(s) {
   if (!s || typeof s !== 'object' || Array.isArray(s) || s.version !== 1 || !s.profile || typeof s.profile !== 'object' || Array.isArray(s.profile) || !['tracks','releases','campaigns'].every(k => Array.isArray(s[k]))) throw Error('This is not a Soundcloud Desktop workspace backup.');
@@ -26,6 +30,7 @@ function serializeWorkspace(value){const bytes=Buffer.from(JSON.stringify(value)
 function createStore(dir) {
   fs.mkdirSync(dir,{recursive:true}); const file=path.join(dir,'workspace.json');
   const previousFile=`${file}.previous`;
+  const recoveryDir=path.join(dir,'workspace-recovery');
   let state;
   let diskHash=null;
   let recoveredFromPrevious=false;
@@ -33,12 +38,87 @@ function createStore(dir) {
   const hashBytes=bytes=>createHash('sha256').update(bytes).digest('hex');
   const readCurrentBytes=()=>{try{return fs.readFileSync(file);}catch(error){if(error.code==='ENOENT')return null;throw error;}};
   const readPreviousBytes=()=>{const info=fs.lstatSync(previousFile);if(!info.isFile()||info.isSymbolicLink()||info.size>workspaceByteLimit)throw Error('Invalid previous workspace file.');return fs.readFileSync(previousFile);};
+  const parseWorkspaceBytes=bytes=>{if(!Buffer.isBuffer(bytes)||bytes.length>workspaceByteLimit)throw Error('Workspace recovery candidate exceeds the safe size limit.');return validate(JSON.parse(bytes.toString('utf8')));};
+  const recoverySummary=(id,source,capturedAt,bytes,value)=>({id,source,capturedAt,sizeBytes:bytes.length,profileName:value.profile.name,trackCount:value.tracks.length,releaseCount:value.releases.length,campaignCount:value.campaigns.length});
+  const readRecoveryCandidates=()=>{
+    const candidates=[];
+    const hashes=new Set();
+    let reservedReadBytes=0;
+    try{
+      const info=fs.lstatSync(previousFile);
+      if(info.isFile()&&!info.isSymbolicLink()&&info.size<=workspaceByteLimit&&info.size<=workspaceRecoveryByteLimit){
+        reservedReadBytes+=info.size;
+        const bytes=fs.readFileSync(previousFile),value=parseWorkspaceBytes(bytes),hash=hashBytes(bytes);
+        hashes.add(hash);
+        candidates.push({summary:recoverySummary('previous','previous',new Date(info.mtimeMs).toISOString(),bytes,value),bytes,value});
+      }
+    }catch{}
+    try{
+      const directory=fs.lstatSync(recoveryDir);
+      if(!directory.isDirectory()||directory.isSymbolicLink())return candidates;
+      const history=[];
+      const folder=fs.opendirSync(recoveryDir);
+      try{
+        let entry;
+        while((entry=folder.readSync())!==null){
+          const name=entry.name,match=workspaceRecoveryName.exec(name);if(!match||!entry.isFile())continue;
+          const full=path.join(recoveryDir,name);
+          try{
+            const info=fs.lstatSync(full);if(!info.isFile()||info.isSymbolicLink()||info.size>workspaceByteLimit)continue;
+            history.push({name,full,hash:match[2],capturedAt:Number(match[1]),size:info.size});
+            history.sort((a,b)=>b.capturedAt-a.capturedAt);
+            if(history.length>workspaceRecoveryCountLimit)history.pop();
+          }catch{}
+        }
+      }finally{folder.closeSync();}
+      for(const item of history){
+        if(reservedReadBytes+item.size>workspaceRecoveryByteLimit)continue;
+        reservedReadBytes+=item.size;
+        try{
+          const bytes=fs.readFileSync(item.full),hash=hashBytes(bytes);if(hash!==item.hash||hashes.has(hash))continue;
+          const value=parseWorkspaceBytes(bytes),capturedAt=new Date(item.capturedAt).toISOString();
+          hashes.add(hash);
+          candidates.push({summary:recoverySummary(item.name,'history',capturedAt,bytes,value),bytes,value});
+        }catch{}
+      }
+    }catch{}
+    return candidates.sort((a,b)=>Date.parse(b.summary.capturedAt)-Date.parse(a.summary.capturedAt));
+  };
+  const archiveWorkspaceGeneration=bytes=>{
+    if(bytes===null)return false;
+    try{
+      parseWorkspaceBytes(bytes);
+      const hash=hashBytes(bytes),now=Date.now();
+      fs.mkdirSync(recoveryDir,{recursive:true,mode:0o700});
+      const directory=fs.lstatSync(recoveryDir);if(!directory.isDirectory()||directory.isSymbolicLink())return false;
+      let count=0,totalBytes=0,latestArchiveAt=0;
+      for(const name of fs.readdirSync(recoveryDir)){
+        const match=workspaceRecoveryName.exec(name);if(!match)continue;
+        try{
+          const info=fs.lstatSync(path.join(recoveryDir,name));
+          if(info.isFile()&&!info.isSymbolicLink()){
+            if(match[2]===hash)return true;
+            count++;totalBytes+=info.size;latestArchiveAt=Math.max(latestArchiveAt,Number(match[1]));
+          }
+        }catch{}
+      }
+      if(count>=workspaceRecoveryCountLimit||totalBytes+bytes.length>workspaceRecoveryByteLimit||now-latestArchiveAt<workspaceRecoveryIntervalMs)return false;
+      const id=`workspace-${now}-${hash}.json`,target=path.join(recoveryDir,id),temp=`${target}.${randomUUID()}.tmp`;
+      let fd;
+      try{
+        fd=fs.openSync(temp,'wx',0o600);fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;
+        fs.linkSync(temp,target);
+      }finally{if(fd!==undefined){try{fs.closeSync(fd);}catch{}}try{fs.rmSync(temp,{force:true});}catch{}}
+      return true;
+    }catch{return false;}
+  };
   const ensureWorkspaceUnchanged=bytes=>{
     const currentHash=bytes===null?null:hashBytes(bytes);
     if(currentHash!==diskHash)throw Error('The workspace file changed outside Soundcloud Desktop. Reopen the app before saving so the newer data is not overwritten.');
   };
   const preservePrevious=bytes=>{
     if(bytes===null||recoveredFromPrevious)return;
+    archiveWorkspaceGeneration(bytes);
     const temp=`${previousFile}.${randomUUID()}.tmp`;
     let fd;
     try{fd=fs.openSync(temp,'wx',0o600);fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;fs.renameSync(temp,previousFile);}
@@ -130,6 +210,13 @@ function createStore(dir) {
     const field=kind==='audio'?'file':'art';
     return collection?state[collection].find(row=>row.id===id)?.[field]:undefined;
   }
+  function recoveryCandidates(){return readRecoveryCandidates().map(candidate=>candidate.summary);}
+  function restoreRecovery(id){
+    if(typeof id!=='string'||(id!=='previous'&&!workspaceRecoveryName.test(id)))throw Error('Choose a valid workspace recovery point.');
+    const candidate=readRecoveryCandidates().find(item=>item.summary.id===id);
+    if(!candidate)throw Error('That workspace recovery point is missing or no longer valid.');
+    return writeAsync(candidate.value);
+  }
   function health(){
     let directoryReadable=false,directoryWritable=false,workspaceReadable=true,workspaceValid=true;
     try{fs.accessSync(dir,fs.constants.R_OK);directoryReadable=true;}catch{}
@@ -138,6 +225,6 @@ function createStore(dir) {
     if(recoveredFromPrevious)workspaceValid=false;
     return {ok:directoryReadable&&directoryWritable&&workspaceReadable&&workspaceValid,checks:{dataDirectoryReadable:directoryReadable,dataDirectoryWritable:directoryWritable,workspaceReadable,workspaceValid}};
   }
-  return {read:()=>structuredClone(state),write,writeAsync,writeRenderer,asset,health,flush:()=>pendingWrite,file};
+  return {read:()=>structuredClone(state),write,writeAsync,writeRenderer,asset,recoveryCandidates,restoreRecovery,health,flush:()=>pendingWrite,file};
 }
 module.exports={blank,validate,createStore,randomUUID};
