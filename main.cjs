@@ -1,5 +1,5 @@
 const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,protocol,net,Tray,Menu,nativeTheme}=require('electron');
-const fs=require('node:fs'); const path=require('node:path'); const {pathToFileURL}=require('node:url');
+const fs=require('node:fs'); const path=require('node:path'); const {pathToFileURL,fileURLToPath}=require('node:url');
 const {createStore,randomUUID}=require('./store.cjs');
 const testDir=!app.isPackaged&&process.env.CLOUDROOM_TEST_DATA;
 if(testDir) app.setPath('userData',testDir);
@@ -19,7 +19,90 @@ function createWindow(){
  win.on('closed',()=>{win=null;});
  win.on('close',e=>{if(uploadController&&!quitting){e.preventDefault();win.hide();}});
 }
-function handler(channel,fn){ipcMain.handle(channel,async(event,...args)=>{if(!win || event.sender!==win.webContents || event.senderFrame!==win.webContents.mainFrame) throw Error('Untrusted caller');return fn(...args);});}
+const recordIdPattern=/^[A-Za-z0-9_-]{1,128}$/;
+const ipcWindow=new Map();
+const maxWorkspaceBytes=32*1024*1024;
+const stringArg=(label,max,{min=0,pattern,values}={})=>value=>{
+ if(typeof value!=='string'||value.length<min||value.length>max||value.includes('\0'))throw Error(`Invalid ${label}.`);
+ if(pattern&&!pattern.test(value))throw Error(`Invalid ${label}.`);
+ if(values&&!values.includes(value))throw Error(`Invalid ${label}.`);
+};
+const idArg=label=>stringArg(label,128,{min:1,pattern:recordIdPattern});
+const plainObject=value=>!!value&&typeof value==='object'&&!Array.isArray(value)&&(Object.getPrototypeOf(value)===Object.prototype||Object.getPrototypeOf(value)===null);
+function workspaceArg(value){
+ if(!plainObject(value)||value.version!==1||!plainObject(value.profile)||!Array.isArray(value.tracks)||!Array.isArray(value.releases)||!Array.isArray(value.campaigns)||['tracks','releases','campaigns'].some(key=>value[key].length>10000))throw Error('Invalid workspace data.');
+ let bytes;try{bytes=Buffer.byteLength(JSON.stringify(value),'utf8');}catch{throw Error('Workspace data could not be read.');}
+ if(bytes>maxWorkspaceBytes)throw Error('Workspace data is too large to save in one request.');
+}
+function uploadMetadataArg(value){
+ if(!plainObject(value))throw Error('Invalid upload details.');
+ const allowed=new Set(['title','sharing','artist','genre','description','releaseId']);
+ if(Object.keys(value).some(key=>!allowed.has(key)))throw Error('Invalid upload details.');
+ stringArg('upload title',180,{min:1})(value.title);
+ stringArg('upload visibility',8,{min:1,values:['public','private']})(value.sharing);
+ stringArg('artist name',1000)(value.artist);
+ stringArg('genre',1000)(value.genre);
+ stringArg('upload description',10000)(value.description);
+ if(value.releaseId!==undefined)stringArg('release ID',128,{pattern:/^(?:[A-Za-z0-9_-]{0,128})$/})(value.releaseId);
+}
+const ipcContracts={
+ 'account:status':{args:[],limit:120,window:10000},
+ 'account:credentials':{args:[stringArg('client ID',4096,{min:1}),stringArg('client secret',4096,{min:1})],limit:5,window:60000},
+ 'account:authorize':{args:[],limit:3,window:60000},
+ 'account:sync':{args:[],limit:4,window:60000},
+ 'account:disconnect':{args:[],limit:10,window:60000},
+ 'account:add':{args:[stringArg('account label',80)],limit:10,window:60000},
+ 'account:switchTo':{args:[idArg('account ID')],limit:30,window:10000},
+ 'account:remove':{args:[idArg('account ID')],limit:10,window:60000},
+ 'audio:cancel-upload':{args:[],limit:20,window:10000},
+ 'audio:upload':{args:[idArg('track ID'),uploadMetadataArg],limit:120,window:60000},
+ 'workspace:read':{args:[],limit:120,window:10000},
+ 'workspace:save':{args:[workspaceArg],limit:30,window:10000},
+ 'audio:import':{args:[],limit:10,window:10000},
+ 'audio:drop':{args:[value=>{
+  if(!Array.isArray(value)||value.length>500)throw Error('Choose no more than 500 audio files at once.');
+  let total=0;for(const file of value){stringArg('audio file path',32768,{min:1})(file);total+=Buffer.byteLength(file,'utf8');}
+  if(total>4*1024*1024)throw Error('The selected file list is too large.');
+ }],limit:10,window:10000},
+ 'audio:reveal':{args:[idArg('track ID')],limit:30,window:10000},
+ 'audio:artwork':{args:[idArg('track ID')],limit:12,window:60000},
+ 'artwork:pick':{args:[idArg('release ID')],limit:12,window:60000},
+ 'workspace:backup':{args:[],limit:4,window:60000},
+ 'workspace:restore':{args:[],limit:4,window:60000},
+ 'clipboard:copy':{args:[stringArg('clipboard text',100000)],limit:30,window:10000},
+ 'soundcloud:open':{args:[stringArg('SoundCloud destination',32,{min:1,values:['home','upload','insights','tracks','api']})],limit:20,window:10000},
+ 'soundcloud:open-track':{args:[stringArg('SoundCloud track link',2048,{min:1})],limit:20,window:10000},
+ 'theme:set':{args:[stringArg('theme',8,{min:1,values:['dark','light','system']})],limit:20,window:10000},
+ 'window:tray':{args:[],limit:20,window:10000}
+};
+function validateIpcRequest(channel,args){
+ const contract=ipcContracts[channel];
+ if(!contract)throw Error('This workspace action is unavailable.');
+ if(args.length!==contract.args.length)throw Error('Invalid request data.');
+ for(let index=0;index<contract.args.length;index++)contract.args[index](args[index]);
+ const now=Date.now(), prior=ipcWindow.get(channel)||[];
+ const recent=prior.filter(time=>now-time<contract.window);
+ if(recent.length>=contract.limit)throw Error('This action was requested too often. Wait a moment and try again.');
+ recent.push(now);ipcWindow.set(channel,recent);
+}
+function isTrustedDocument(frame){
+ if(!frame||!frame.url)return false;
+ try{
+  const actual=new URL(frame.url),expected=pathToFileURL(path.join(__dirname,'ui/index.html'));
+  if(actual.protocol!=='file:'||actual.search||actual.hash)return false;
+  const actualPath=path.resolve(fileURLToPath(actual)),expectedPath=path.resolve(fileURLToPath(expected));
+  return process.platform==='win32'?actualPath.toLowerCase()===expectedPath.toLowerCase():actualPath===expectedPath;
+ }catch{return false;}
+}
+function handler(channel,fn){
+ if(!ipcContracts[channel])throw Error(`Missing IPC contract for ${channel}.`);
+ ipcMain.handle(channel,async(event,...args)=>{
+  const contents=win?.webContents;
+  if(!contents||event.sender!==contents||event.senderFrame!==contents.mainFrame||!isTrustedDocument(event.senderFrame))throw Error('Untrusted caller');
+  validateIpcRequest(channel,args);
+  return fn(...args);
+ });
+}
 async function addAudio(paths){
  const s=store.read(),seen=new Set(s.tracks.map(track=>track.file));let count=0;
  if(!Array.isArray(paths))return {state:s,count};
@@ -43,17 +126,35 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
  app.whenReady().then(()=>{
   try{store=createStore(app.getPath('userData'));}catch(e){dialog.showErrorBox('Workspace could not be opened',e.message+'\nYour existing data has been preserved.');app.quit();return;}
   protocol.handle('studio',async request=>{
-   const u=new URL(request.url);
+   let u;try{u=new URL(request.url);}catch{return new Response('File unavailable',{status:404});}
+   if(request.method!=='GET'||u.protocol!=='studio:'||u.username||u.password||u.port||u.search||u.hash)return new Response('File unavailable',{status:404});
+   const match=/^\/([A-Za-z0-9_-]{1,128})$/.exec(u.pathname);
+   if(!match)return new Response('File unavailable',{status:404});
+   const id=match[1];
    if(u.hostname==='preview'){
-    const id=u.pathname.slice(1);
-    if(!/^\d+$/.test(id)||!account)return new Response('Preview unavailable',{status:404});
+    if(!/^\d{1,20}$/.test(id)||!account)return new Response('Preview unavailable',{status:404});
     try{return await account.preview(id,request.headers.get('range')||'');}
     catch{return new Response('SoundCloud preview unavailable',{status:502,headers:{'Cache-Control':'no-store'}});}
    }
-   const id=u.pathname.slice(1);const file=store.asset(u.hostname,id);
+   const snapshot=store.read();let file='';
+   if(u.hostname==='audio'){
+    const track=snapshot.tracks.find(item=>item.id===id);
+    if(track&&typeof track.file==='string'&&path.isAbsolute(track.file)&&audioExtensions.has(path.extname(track.file).toLowerCase()))file=track.file;
+   }else if(u.hostname==='art'||u.hostname==='trackart'){
+    const row=(u.hostname==='art'?snapshot.releases:snapshot.tracks).find(item=>item.id===id);
+    const artworkRoot=path.join(app.getPath('userData'),'artwork');
+    if(row&&typeof row.art==='string'&&['.png','.jpg','.jpeg','.webp'].includes(path.extname(row.art).toLowerCase())){
+     try{
+      const [root,target]=await Promise.all([fs.promises.realpath(artworkRoot),fs.promises.realpath(row.art)]);
+      const relative=path.relative(root,target);
+      if(relative&&relative!=='..'&&!relative.startsWith(`..${path.sep}`)&&!path.isAbsolute(relative))file=target;
+     }catch{}
+    }
+   }
    if(!file)return new Response('File unavailable',{status:404});
-   try{await fs.promises.access(file,fs.constants.R_OK);}catch{return new Response('File unavailable',{status:404});}
-   return net.fetch(pathToFileURL(file).toString(),{headers:request.headers});
+   try{if(!(await fs.promises.stat(file)).isFile())return new Response('File unavailable',{status:404});}catch{return new Response('File unavailable',{status:404});}
+   const headers={};const range=request.headers.get('range');if(range&&range.length<=64&&/^bytes=\d*-\d*$/.test(range))headers.Range=range;
+   try{return await net.fetch(pathToFileURL(file).toString(),{headers});}catch{return new Response('File unavailable',{status:404});}
   });
   createWindow();
   try{account=require('./connection.cjs').createConnection(app.getPath('userData'));}catch(e){dialog.showErrorBox('SoundCloud connection',e.message);}
