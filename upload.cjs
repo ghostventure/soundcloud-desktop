@@ -50,7 +50,13 @@ function validateReceipt(data) {
   const id = data.id;
   const idText = Number.isSafeInteger(id) && id > 0 ? String(id) : typeof id === 'string' && /^\d{1,128}$/.test(id) && /[1-9]/.test(id) ? id : '';
   const urnPattern = /^soundcloud:tracks:[1-9]\d{0,127}$/;
-  const urn = [data.urn, id].find(value => typeof value === 'string' && value.length <= 160 && urnPattern.test(value)) || '';
+  const urnValues = [data.urn, id].filter(value => typeof value === 'string' && value.length <= 160 && urnPattern.test(value));
+  const urn = urnValues[0] || '';
+  const urnId = urn.slice('soundcloud:tracks:'.length);
+  const normalizeDigits = value => value.replace(/^0+/, '') || '0';
+  if ((idText && urn && normalizeDigits(idText) !== normalizeDigits(urnId)) || (urnValues.length > 1 && urnValues.some(value => value !== urn))) {
+    throw uploadError('SoundCloud returned an upload receipt with inconsistent track identifiers. Check your catalog before retrying.', { code: 'SC_UPLOAD_UNCERTAIN' });
+  }
   if (!urn && !idText) {
     throw uploadError('SoundCloud accepted the request but returned no valid track ID. Check your SoundCloud catalog before retrying.', { code: 'SC_UPLOAD_UNCERTAIN' });
   }
