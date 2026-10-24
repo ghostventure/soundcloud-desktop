@@ -4,7 +4,7 @@ Native Windows artist uploader and workspace. Not affiliated with or endorsed by
 
 ## Current project version
 
-The source and package metadata are now version 0.2.9. This update documents the second 50 ranks of a backend improvement pass. Its coverage is 42 implemented, 2 partial, and 6 unsupported; the pass does not represent 50 newly added features. The original item-by-item titles were not retained, so rank mapping is derived from integrated capabilities and labels only verified rank numbers. The Windows x64 setup and portable packages are published in the [v0.2.9 GitHub release](https://github.com/ghostventure/soundcloud-desktop/releases/tag/v0.2.9), with a SHA-256 manifest. See the [0.2.9 coverage and limits](docs/RELEASE-0.2.9.md) and the [0.2.8 first-pass notes](docs/RELEASE-0.2.8.md).
+The current source and package metadata are version 0.3.0. This local build adds API-backed SoundCloud activity and comments review, plus sync-based performance milestones and CSV export. The local installer is built from this source; GitHub release availability is tracked separately. See the [0.3.0 release notes](docs/RELEASE-0.3.0.md), [API-supported UX plan](docs/PLAN-API-BACKED-UX-0.3.0.md), and [SC Artist user guide](docs/USER-GUIDE.md).
 
 Version 0.2.7 added catalog filters and comparison tools, track review and detail tools, workspace accessibility and navigation options, and encrypted multi-account switching. Backend catalog snapshots and workspace saves also use less memory and disk space. See [0.2.7 release notes](docs/RELEASE-0.2.7.md).
 
@@ -41,11 +41,12 @@ The app is an Electron desktop application targeting 64-bit Windows. See [native
 - Per-account identity binding and persisted cooldowns, upload-time audio signature/file identity checks, and Settings display of reported OAuth scopes plus observed per-route quota headers.
 - Local daily follower and track-count history captured during successful catalog syncs; this is not SoundCloud time-series analytics.
 - Timestamped follower, track, catalog-play and catalog-like snapshots from successful manual syncs, configurable threshold alerts, and a recent CSV digest with adjacent-snapshot observed deltas. These are snapshot comparisons, not real-time or scheduled analytics.
+- Read-only, bounded SoundCloud activity feed and user-requested comments review for a selected synced track; results are account-bound and comments are never fetched across the catalog.
 - Settings health checks for workspace and credential access, plus an opt-in privacy-safe support bundle containing versions, projected health, and sanitized event categories.
 - Responsive 100-row library/catalog pages, asynchronous serialized workspace saves, and faster audio/media file lookups; see [performance notes](docs/PERFORMANCE-0.2.1.md).
 - SoundCloud catalog snapshots keep 2,000 description characters per track, normalize pages as they arrive, and remain sequentially paginated; internal workspace JSON is compact while exported backups stay readable.
 
-The 0.2.9 installer is unsigned, so Windows may show an unknown publisher warning. Update verification checks the installer bytes against GitHub's release SHA-256 metadata, not an Authenticode publisher signature. Setup opens visibly for review and never installs silently.
+The Windows installer is unsigned, so Windows may show an unknown publisher warning. Update verification checks installer bytes against GitHub's release SHA-256 metadata, not an Authenticode publisher signature. Setup opens visibly for review and never installs silently.
 
 After browser authorization, the localhost callback is detected by the app, the returned account is verified, and encrypted refresh tokens enable automatic sign-in on later launches. Browser cookies and passwords are never imported. For automatic local library import, put supported audio in `Music\Soundcloud Desktop Inbox`; the startup scan references files in place and does not move or upload them.
 

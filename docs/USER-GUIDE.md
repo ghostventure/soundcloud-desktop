@@ -48,6 +48,8 @@ After a successful connection and catalog sync:
 
 The preview and catalog are snapshots from the last sync, not a live feed. Catalog play and like totals are summed from the tracks returned by that sync. The account profile keeps a local daily history of follower and track counts for up to 366 days. A separate recent performance history records the API values observed at successful manual syncs (up to 100 snapshots), including catalog plays and likes. These snapshots do not provide time-series or real-time SoundCloud analytics. Confirm that you connected the intended SoundCloud account if the figures or track list do not look right.
 
+On **SoundCloud**, choose **Refresh feed** to load a bounded snapshot of recent activity from SoundCloud’s authenticated feed endpoint. Filter the returned items and use **Open** to visit an available item on SoundCloud. Refresh is user initiated; results stay in memory for the session and are scoped to the active account. The feed does not contain private messages or SoundCloud Team announcements.
+
 ### Catalog controls and sync history
 
 On **Overview**, use **Customize Overview cards** to hide or reorder the summary cards. On **SoundCloud**, the catalog tools support sortable columns, optional columns, metadata search, grouping, saved filters, removable filter chips, and multi-selection. These choices are saved on this PC. The sync comparison and catalog change history compare saved snapshots; they do not provide a live feed or a complete SoundCloud activity log.
@@ -159,6 +161,8 @@ Portable builds can check the stable release and open its validated official Git
 
 ## Related documentation
 
+- [Version 0.3.0 release notes](RELEASE-0.3.0.md)
+- [API-supported UX plan](PLAN-API-BACKED-UX-0.3.0.md)
 - [Version 0.2.7 release notes](RELEASE-0.2.7.md)
 - [Version 0.2.8 backend coverage and limits](RELEASE-0.2.8.md)
 - [Version 0.2.9 backend coverage and limits](RELEASE-0.2.9.md)
