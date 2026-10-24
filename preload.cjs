@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('studio',{
   accountAdd:label=>ipcRenderer.invoke('account:add',label), accountSwitch:id=>ipcRenderer.invoke('account:switchTo',id), accountRemove:id=>ipcRenderer.invoke('account:remove',id),
   authorize:()=>ipcRenderer.invoke('account:authorize'), sync:()=>ipcRenderer.invoke('account:sync'), disconnect:()=>ipcRenderer.invoke('account:disconnect'),
   upload:(id,metadata)=>ipcRenderer.invoke('audio:upload',id,metadata), uploadJobs:()=>ipcRenderer.invoke('audio:upload-jobs'), acknowledgeUpload:id=>ipcRenderer.invoke('audio:upload-acknowledge',id),
+  backendHealth:()=>ipcRenderer.invoke('backend:health'), exportSupportBundle:()=>ipcRenderer.invoke('diagnostics:export'),
   trackArtwork:id=>ipcRenderer.invoke('audio:artwork',id),cancelUpload:()=>ipcRenderer.invoke('audio:cancel-upload'),
   onUpload:fn=>ipcRenderer.on('upload:progress',(_event,data)=>fn(data))
 });

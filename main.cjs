@@ -1,6 +1,7 @@
 const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,protocol,net,Tray,Menu,nativeTheme}=require('electron');
 const fs=require('node:fs'); const path=require('node:path'); const {pathToFileURL,fileURLToPath}=require('node:url');
 const {isDeepStrictEqual}=require('node:util');
+const os=require('node:os');
 const {createStore,randomUUID}=require('./store.cjs');
 const testDir=!app.isPackaged&&process.env.CLOUDROOM_TEST_DATA;
 if(testDir) app.setPath('userData',testDir);
@@ -8,6 +9,8 @@ protocol.registerSchemesAsPrivileged([{scheme:'studio',privileges:{standard:true
 app.setAppUserModelId('com.soundclouddesktop.artist');
 if(app.isPackaged){for(const flag of ['remote-debugging-port','remote-debugging-pipe','inspect','inspect-brk'])app.commandLine.removeSwitch(flag);}
 let win,store,tray,uploadController,account,uploadJournal; let quitting=false;
+const diagnosticEvents=[];
+const safeDiagnosticCodes=new Set(['SC_UPLOAD_UNCERTAIN','EACCES','EADDRINUSE','EAI_AGAIN','ECONNRESET','ECONNREFUSED','EHOSTUNREACH','EIO','EINVAL','EISDIR','ENETUNREACH','ENOSPC','ENOENT','ENOTDIR','EPIPE','EPERM','ETIMEDOUT']);
 const urls={home:'https://soundcloud.com',upload:'https://soundcloud.com/upload',insights:'https://soundcloud.com/you/insights',tracks:'https://soundcloud.com/you/tracks',api:'https://developers.soundcloud.com/docs/api/register-app'};
 const audioExtensions=new Set(['.mp3','.wav','.flac','.ogg','.m4a','.aac','.aiff']);
 function theme(value){ if(nativeTheme.themeSource!==value)nativeTheme.themeSource=value; const dark=nativeTheme.shouldUseDarkColors; win?.setTitleBarOverlay({color:dark?'#191a1d':'#f2f3f5',symbolColor:dark?'#f5f5f5':'#222222',height:44}); }
@@ -16,7 +19,7 @@ function createWindow(){
  win.removeMenu(); win.loadFile(path.join(__dirname,'ui/index.html')); win.once('ready-to-show',()=>{theme(store.read().profile.theme);win.show();});
  win.webContents.setWindowOpenHandler(()=>({action:'deny'})); win.webContents.on('will-navigate',e=>e.preventDefault());
  win.webContents.session.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
- win.webContents.on('render-process-gone',(_event,details)=>{if(win&&!quitting&&details.reason!=='clean-exit'){dialog.showMessageBox(win,{type:'error',message:'The workspace stopped responding.',detail:'Your saved library and release plans are preserved. Reload the workspace to continue.',buttons:['Reload workspace','Close app']}).then(({response})=>{if(response===0)win?.reload();else app.quit();});}});
+ win.webContents.on('render-process-gone',(_event,details)=>{const reason=['clean-exit','abnormal-exit','killed','crashed','oom','launch-failed','integrity-failure'].includes(details.reason)?details.reason:'unknown';if(reason!=='clean-exit')recordDiagnostic('renderer-crash','renderer process stopped',reason);if(win&&!quitting&&reason!=='clean-exit'){dialog.showMessageBox(win,{type:'error',message:'The workspace stopped responding.',detail:'Your saved library and release plans are preserved. Reload the workspace to continue.',buttons:['Reload workspace','Close app']}).then(({response})=>{if(response===0)win?.reload();else app.quit();});}});
  win.on('closed',()=>{win=null;});
  win.on('close',e=>{if(uploadController&&!quitting){e.preventDefault();win.hide();}});
 }
@@ -26,6 +29,35 @@ const maxWorkspaceBytes=32*1024*1024;
 function safeSoundCloudUrl(value){
  if(typeof value!=='string'||!value||value.length>2048)return '';
  try{const url=new URL(value);return url.protocol==='https:'&&['soundcloud.com','www.soundcloud.com'].includes(url.hostname.toLowerCase())&&!url.username&&!url.password&&!url.port?url.href:'';}catch{return '';}
+}
+function redactDiagnosticText(value){
+ let text=String(value??'').slice(0,4000);
+ text=text.replace(/\b(Bearer|OAuth)\s+[A-Za-z0-9._~+/-]+=*/gi,'$1 [REDACTED]');
+ text=text.replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,'[TOKEN]');
+ text=text.replace(/\b(client[_-]?secret|access[_-]?token|refresh[_-]?token|id[_-]?token|authorization|password|secret|token|code(?:[_-]?verifier)?|verifier|api[_-]?key)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;&]+)/gi,'$1=[REDACTED]');
+ text=text.replace(/https?:\/\/[^\s"'<>]*/gi,'[URL]');
+ text=text.replace(/(["'])(?:[A-Z]:\\|\\\\|\/(?:Users|home|private|tmp)\/)[^"'\r\n]*\1/g,'[LOCAL_PATH]');
+ text=text.replace(/\b[A-Z]:\\[^\s"'<>]*/gi,'[LOCAL_PATH]');
+ text=text.replace(/\\\\[^\s"'<>]+/g,'[LOCAL_PATH]');
+ text=text.replace(/\/(?:Users|home|private|tmp)\/[^\s"'<>]*/g,'[LOCAL_PATH]');
+ text=text.replace(/\b[\w.+-]+@[\w.-]+\.[A-Z]{2,}\b/gi,'[EMAIL]');
+ return text.slice(0,600);
+}
+function diagnosticCategory(message){
+ const text=String(message||'').toLowerCase();
+ if(/eacces|eperm|permission|access denied/.test(text))return 'permission';
+ if(/timed? ?out|timeout|deadline/.test(text))return 'timeout';
+ if(/429|rate limit|retry-after/.test(text))return 'rate-limit';
+ if(/oauth|authorization|credential|token|account/.test(text))return 'account';
+ if(/invalid|unsupported|too large|validation/.test(text))return 'validation';
+ return 'operation';
+}
+function diagnosticCode(value){const code=String(value||'');return safeDiagnosticCodes.has(code)?code:'';}
+function recordDiagnostic(channel,message,code){
+ const safeChannel=/^[a-z0-9:-]{1,64}$/i.test(String(channel||''))?String(channel):'app';
+ const safeCode=diagnosticCode(code);
+ diagnosticEvents.unshift({at:new Date().toISOString(),channel:safeChannel,category:diagnosticCategory(message),...(safeCode?{code:safeCode}:{})});
+ if(diagnosticEvents.length>50)diagnosticEvents.length=50;
 }
 const stringArg=(label,max,{min=0,pattern,values}={})=>value=>{
  if(typeof value!=='string'||value.length<min||value.length>max||value.includes('\0'))throw Error(`Invalid ${label}.`);
@@ -63,6 +95,8 @@ const ipcContracts={
  'audio:upload':{args:[idArg('track ID'),uploadMetadataArg],limit:120,window:60000},
  'audio:upload-jobs':{args:[],limit:30,window:10000},
  'audio:upload-acknowledge':{args:[idArg('upload job ID')],limit:30,window:10000},
+ 'backend:health':{args:[],limit:30,window:10000},
+ 'diagnostics:export':{args:[],limit:4,window:60000},
  'workspace:read':{args:[],limit:120,window:10000},
  'workspace:save':{args:[workspaceArg],limit:30,window:10000},
  'audio:import':{args:[],limit:10,window:10000},
@@ -106,9 +140,47 @@ function handler(channel,fn){
  ipcMain.handle(channel,async(event,...args)=>{
   const contents=win?.webContents;
   if(!contents||event.sender!==contents||event.senderFrame!==contents.mainFrame||!isTrustedDocument(event.senderFrame))throw Error('Untrusted caller');
-  validateIpcRequest(channel,args);
-  return fn(...args);
+  try{validateIpcRequest(channel,args);return await fn(...args);}
+  catch(error){
+   const message=redactDiagnosticText(error?.message||error)||'The request could not be completed.';
+   const code=diagnosticCode(error?.code);recordDiagnostic(channel,message,code);
+   const safeError=new Error(message);if(code)safeError.code=code;
+   throw safeError;
+  }
  });
+}
+function projectHealth(raw,keys,includeAccountCount=false){
+ if(!plainObject(raw)||!plainObject(raw.checks))return {available:false,ok:false,checks:{}};
+ const checks={};for(const key of keys){const value=raw.checks[key];if(typeof value==='boolean')checks[key]=value;else if(typeof value==='number'&&Number.isFinite(value))checks[key]=key.endsWith('CooldownMs')?Math.max(0,Math.min(value,86400000)):value;}
+ return {available:true,ok:raw.ok===true,checks,...(includeAccountCount&&Number.isSafeInteger(raw.accountCount)?{accountCount:Math.max(0,raw.accountCount)}:{})};
+}
+function projectSyncCheckpoint(raw){
+ if(!plainObject(raw))return undefined;
+ const checkpoint={};
+ if(['running','completed','interrupted'].includes(raw.status))checkpoint.status=raw.status;
+ for(const key of ['pageCount','trackCount'])if(Number.isSafeInteger(raw[key])&&raw[key]>=0&&raw[key]<=10000000)checkpoint[key]=raw[key];
+ for(const key of ['startedAt','lastUpdated'])if(typeof raw[key]==='string'&&raw[key].length<=40&&Number.isFinite(Date.parse(raw[key])))checkpoint[key]=new Date(raw[key]).toISOString();
+ if(typeof raw.errorCode==='string'&&/^[a-z0-9_-]{1,64}$/i.test(raw.errorCode))checkpoint.errorCode=raw.errorCode;
+ return Object.keys(checkpoint).length?checkpoint:undefined;
+}
+async function collectBackendHealth(){
+ const storage=async()=>{
+  if(typeof store?.health!=='function')return {available:false,ok:false,checks:{}};
+  try{return projectHealth(await store.health(),['dataDirectoryReadable','dataDirectoryWritable','workspaceReadable','workspaceValid']);}
+  catch(error){const text=redactDiagnosticText(error?.message||error);recordDiagnostic('workspace-health',text);return {available:true,ok:false,checks:{},errorCategory:diagnosticCategory(text)};}
+ };
+ const soundcloud=async()=>{
+  if(typeof account?.health!=='function')return {available:false,ok:false,checks:{}};
+  try{
+   const [health,status]=await Promise.all([account.health(),typeof account.status==='function'?Promise.resolve().then(()=>account.status()).catch(()=>null):null]);
+   const projected=projectHealth(health,['osEncryptionAvailable','credentialVaultReadable','credentialVaultWritable','activeAccountConfigured','activeAccountConnected','accountCooldownMs','apiCircuitCooldownMs'],true);
+   const syncCheckpoint=projectSyncCheckpoint(status?.syncCheckpoint);
+   return syncCheckpoint?{...projected,syncCheckpoint}:projected;
+  }
+  catch(error){const text=redactDiagnosticText(error?.message||error);recordDiagnostic('connection-health',text);return {available:true,ok:false,checks:{},errorCategory:diagnosticCategory(text)};}
+ };
+ const [workspace,connection]=await Promise.all([storage(),soundcloud()]);
+ return {generatedAt:new Date().toISOString(),workspace,connection};
 }
 async function addAudio(paths){
  const s=store.read(),seen=new Set(s.tracks.map(track=>track.file));let count=0;
@@ -179,8 +251,8 @@ function createUploadJournal(dir){
    jobs.unshift(job);trim();try{write();}catch(error){jobs=jobs.filter(item=>item.id!==job.id);throw error;}return job.id;
   },
   progress(id,value){const job=get(id);if(!job||job.status!=='uploading')return;const percent=Math.max(0,Math.min(100,Math.floor(Number(value)||0)));if(percent-job.progress<5&&percent!==100)return;job.progress=percent;job.updatedAt=new Date().toISOString();write();},
-  accepted(id,remote){const job=get(id);if(!job||job.status!=='uploading')return null;job.status='accepted';job.progress=100;job.remoteId=String(remote.urn||remote.id||'').slice(0,128);job.remoteUrl=safeSoundCloudUrl(remote.permalink_url);job.updatedAt=new Date().toISOString();job.message='SoundCloud accepted this upload. Save the receipt locally before trying this track again.';try{write();return null;}catch(error){return error.message;}},
-  localSaveFailed(id,error){const job=get(id);if(!job||job.status!=='accepted')return null;job.message=`SoundCloud accepted this upload, but local workspace details could not be saved. Receipt: ${job.remoteId||'ID unavailable'}. ${String(error?.message||error||'').slice(0,120)}`.slice(0,240);job.updatedAt=new Date().toISOString();try{write();return null;}catch(writeError){return writeError.message;}},
+  accepted(id,remote){const job=get(id);if(!job||job.status!=='uploading')return null;job.status='accepted';job.progress=100;job.remoteId=String(remote.urn||remote.id||'').slice(0,128);job.remoteUrl=safeSoundCloudUrl(remote.permalink_url);job.updatedAt=new Date().toISOString();job.message='SoundCloud accepted this upload. Save the receipt locally before trying this track again.';try{write();return null;}catch(error){return redactDiagnosticText(error.message);}},
+  localSaveFailed(id,error){const job=get(id);if(!job||job.status!=='accepted')return null;job.message=`SoundCloud accepted this upload, but local workspace details could not be saved. Receipt: ${job.remoteId||'ID unavailable'}. ${redactDiagnosticText(error?.message||error||'').slice(0,120)}`.slice(0,240);job.updatedAt=new Date().toISOString();try{write();return null;}catch(writeError){return redactDiagnosticText(writeError.message);}},
   failed(id){const job=get(id);if(!job||job.status!=='uploading')return;job.status='failed';job.updatedAt=new Date().toISOString();job.message='The upload was rejected or failed before an uncertain result was reported. Review the error before retrying.';write();},
   uncertain(id){const job=get(id);if(!job||job.status!=='uploading')return;job.status='outcome-unknown';job.updatedAt=new Date().toISOString();job.message='SoundCloud may have received this upload. Check your SoundCloud catalog before retrying.';write();},
   acknowledge(id){const job=get(id);if(!job||!['outcome-unknown','accepted'].includes(job.status))return false;job.status='acknowledged';job.updatedAt=new Date().toISOString();job.message=job.remoteId?`Receipt reviewed: ${job.remoteId}`:'Upload outcome reviewed.';write();return true;},
@@ -190,8 +262,8 @@ function createUploadJournal(dir){
 if(!app.requestSingleInstanceLock()) app.quit(); else {
  app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
  app.whenReady().then(()=>{
-  try{store=createStore(app.getPath('userData'));}catch(e){dialog.showErrorBox('Workspace could not be opened',e.message+'\nYour existing data has been preserved.');app.quit();return;}
-  try{uploadJournal=createUploadJournal(app.getPath('userData'));}catch(e){dialog.showErrorBox('Upload recovery history unavailable',e.message);}
+  try{store=createStore(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('workspace-startup',message);dialog.showErrorBox('Workspace could not be opened',message+'\nYour existing data has been preserved.');app.quit();return;}
+  try{uploadJournal=createUploadJournal(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('upload-journal-startup',message);dialog.showErrorBox('Upload recovery history unavailable',message);}
   protocol.handle('studio',async request=>{
    let u;try{u=new URL(request.url);}catch{return new Response('File unavailable',{status:404});}
    if(request.method!=='GET'||u.protocol!=='studio:'||u.username||u.password||u.port||u.search||u.hash)return new Response('File unavailable',{status:404});
@@ -224,8 +296,24 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    try{return await net.fetch(pathToFileURL(file).toString(),{headers});}catch{return new Response('File unavailable',{status:404});}
   });
   createWindow();
-  try{account=require('./connection.cjs').createConnection(app.getPath('userData'));}catch(e){dialog.showErrorBox('SoundCloud connection',e.message);}
+  try{account=require('./connection.cjs').createConnection(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('connection-startup',message);dialog.showErrorBox('SoundCloud connection',message);}
   handler('account:status',()=>account?account.status():{configured:false,connected:false});
+  handler('backend:health',()=>collectBackendHealth());
+  handler('diagnostics:export',async()=>{
+   const result=await dialog.showSaveDialog(win,{title:'Export privacy-safe support bundle',defaultPath:`Soundcloud-Desktop-support-${new Date().toISOString().slice(0,10)}.json`,filters:[{name:'Support bundle',extensions:['json']}]});
+   if(result.canceled||!result.filePath)return {saved:false};
+   const bundle={
+    schemaVersion:1,
+    generatedAt:new Date().toISOString(),
+    app:{name:'Soundcloud Desktop',version:app.getVersion()},
+    system:{platform:process.platform,release:os.release(),architecture:process.arch,electron:process.versions.electron,chromium:process.versions.chrome,node:process.versions.node},
+    backend:await collectBackendHealth(),
+    recentEvents:diagnosticEvents.slice(0,50).map(({at,channel,category,code})=>({at,channel,category,...(code?{code}:{})})),
+    privacy:{workspaceContentIncluded:false,credentialsIncluded:false,accountIdentifiersIncluded:false,localPathsIncluded:false,rawErrorMessagesIncluded:false}
+   };
+   const contents=JSON.stringify(bundle,null,2);if(Buffer.byteLength(contents,'utf8')>128*1024)throw Error('Support bundle exceeded its size limit.');
+   await fs.promises.writeFile(result.filePath,contents,'utf8');recordDiagnostic('diagnostics:export','support bundle exported');return {saved:true};
+  });
   for(const action of ['credentials','authorize','sync','disconnect','add','switchTo','remove'])handler('account:'+action,(...args)=>{
    if(!account)throw Error('Account storage is unavailable.');
    if(uploadController&&['add','switchTo','remove'].includes(action))throw Error('Finish the current upload before changing SoundCloud accounts.');
@@ -245,7 +333,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    const jobId=uploadJournal.begin({trackId:id,title:fields.title,accountId:accountState.activeAccountId,accountLabel:accountInfo?.label});
    uploadController=new AbortController();let last=-1,serverAccepted=false,journalWarning='';
    try{
-    const remote=await account.upload(track.file,fields,{artwork,signal:uploadController.signal,onProgress:percent=>{try{uploadJournal.progress(jobId,percent);}catch(error){journalWarning=journalWarning||String(error?.message||error).slice(0,180);}if(last!==percent){last=percent;win?.webContents.send('upload:progress',{id,percent,title:fields.title});}}});
+    const remote=await account.upload(track.file,fields,{artwork,signal:uploadController.signal,onProgress:percent=>{try{uploadJournal.progress(jobId,percent);}catch(error){journalWarning=journalWarning||redactDiagnosticText(error?.message||error).slice(0,180);}if(last!==percent){last=percent;win?.webContents.send('upload:progress',{id,percent,title:fields.title});}}});
     serverAccepted=true;
     journalWarning=journalWarning||uploadJournal.accepted(jobId,remote)||'';
     const remoteId=String(remote.urn||remote.id||'').slice(0,128),acceptedTrack={id:remoteId,title:remote.title||fields.title,sharing:remote.sharing||fields.sharing,state:remote.state||'processing',url:safeSoundCloudUrl(remote.permalink_url)};
@@ -255,7 +343,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
      if(!local)throw Error('The track was removed from the local workspace before its receipt could be saved.');
      local.link=acceptedTrack.url;local.lastUpload={id:remoteId,sharing:acceptedTrack.sharing,state:acceptedTrack.state,at:new Date().toISOString(),url:acceptedTrack.url};
      saved=await store.writeAsync(latest);
-    }catch(error){localSaveError=String(error?.message||error).slice(0,240);const journalError=uploadJournal.localSaveFailed(jobId,error);if(journalError)localSaveError=`${localSaveError}; upload receipt history also could not be saved.`.slice(0,240);}
+    }catch(error){localSaveError=redactDiagnosticText(error?.message||error).slice(0,240);const journalError=uploadJournal.localSaveFailed(jobId,error);if(journalError)localSaveError=`${localSaveError}; upload receipt history also could not be saved.`.slice(0,240);}
     return {state:saved,track:acceptedTrack,jobId,localSaveError,journalWarning};
    }catch(error){
     if(!serverAccepted){try{if(error.code==='SC_UPLOAD_UNCERTAIN')uploadJournal.uncertain(jobId);else uploadJournal.failed(jobId);}catch{}}
