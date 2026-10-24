@@ -117,7 +117,7 @@ Use **Promotion** to save campaign drafts, captions, channels, dates, contacts, 
 
 ## Save and restore your workspace
 
-The workspace is stored for your Windows user. Use **Settings → Export workspace backup** to save profile and workspace metadata. New JSON backups include a SHA-256 checksum to detect accidental changes; the checksum does not prove who created the file and is not a signature. Older raw JSON backups remain supported, but have no checksum and are still structurally validated. Backups include audio file paths, not the audio files themselves; copy audio and artwork separately when moving to another PC. Credentials and SoundCloud tokens are excluded. Backup files are limited to 32 MiB.
+The workspace, recovery copies, SoundCloud account vault, sync checkpoints, and upload receipts are stored for your Windows user and encrypted with Windows DPAPI through Electron `safeStorage`. The **Your data protection** panel explains which local items have app-level encryption and which do not. Use **Settings → Export workspace backup** to save profile and workspace metadata. The exported JSON is readable and unencrypted; SC-DS warns you before saving it. New JSON backups include a SHA-256 checksum to detect accidental changes; the checksum does not prove who created the file and is not a signature. Older raw JSON backups remain supported after structural validation. Backups include audio file paths and track details, not the audio itself; copy audio and artwork separately when moving to another PC. Credentials and SoundCloud tokens are excluded. Backup files are limited to 32 MiB.
 
 **Restore a backup** replaces the current workspace after confirmation. Before replacing it, the app creates a copy of the current workspace metadata.
 
@@ -137,7 +137,7 @@ The **SoundCloud access & quotas** panel shows the active account's reported OAu
 
 ### Check for app updates
 
-In **Settings**, select **Check GitHub for updates** when you want to check the latest stable release. The installed 64-bit Windows build can download the official NSIS setup file and verify its SHA-256 digest against GitHub's release metadata. After verification, setup opens visibly only after you confirm; the app does not install it silently. This check does not verify an Authenticode publisher signature, so Windows may report an unknown publisher for the unsigned installer.
+In **Settings**, select **Check GitHub for updates** when you want to check the latest stable release. Updates come directly from the fixed GitHub repository. Before setup can open, SC-DS checks both the SHA-256 digest published with the release and a valid Windows Authenticode signature for Black Lion Studios. It repeats the checks before opening setup. You confirm before setup opens; SC-DS does not install updates silently.
 
 The 1.0.0 release is installed through SC-DS Installation Manager. Update checks are user initiated; there is no background polling or automatic download. Setup opens visibly for review and requires the current consent record before installing an update.
 

@@ -34,13 +34,13 @@ The read-only setup page groups entries from [`installer/components.json`](../in
 - **App and Windows requirements:** bundled Electron runtime, built-in Windows services, and the Windows version required by this x64 build.
 - **Future official releases:** an extensible category for future SoundCloud capabilities, added only when they have an official source and then delivered through a published SC-DS release. The manager does not scrape SoundCloud or install feature modules from SoundCloud.
 
-The catalog generator validates unique entry IDs, known categories, and rejects install actions on unsupported SoundCloud entries. Future entries require an official SoundCloud developer source or the official SoundCloud GitHub organization. Catalog updates ship with SC-DS releases; the existing update flow verifies the downloaded setup against the GitHub release's published SHA-256 metadata before opening it. The setup executable is unsigned, so a checksum match is an integrity check against that release metadata, not an Authenticode publisher signature.
+The catalog generator validates unique entry IDs, known categories, and rejects install actions on unsupported SoundCloud entries. Future entries require an official SoundCloud developer source or the official SoundCloud GitHub organization. Catalog updates ship with SC-DS releases; updates come directly from the fixed GitHub repository. Before setup opens, the updater validates the release SHA-256 and requires a valid Windows Authenticode signature for Black Lion Studios. Both checks are repeated at handoff.
 
 ## User data and publisher prompt
 
-Workspace metadata and an Electron safeStorage-encrypted credential file protected by Windows DPAPI stay under the current Windows user's app-data folder, separate from program files. The credential file is not Windows Credential Manager. The uninstaller does not remove these files. Back up workspace metadata before moving it to another PC; credentials are not included in workspace backups.
+The workspace, recovery history, account vault, sync checkpoints, and upload receipts stay under the current Windows user's app-data folder, separate from program files, and are encrypted with Windows DPAPI through Electron `safeStorage`. The uninstaller does not remove these files. Valid legacy workspace and upload-receipt data migrates in place; unverifiable files are preserved and reported as needing attention. Workspace backups are readable JSON and receive a warning before export. Back up workspace metadata before moving it to another PC; credentials are not included in workspace backups.
 
-This setup is unsigned. Windows may display an unknown-publisher or SmartScreen warning. Obtain it only from a trusted source and compare a published checksum when available.
+Windows release builds require a valid Black Lion Studios code-signing certificate. The signing certificate and private key are supplied securely to the build environment and are not included in this repository or installer.
 
 ## Build requirements
 

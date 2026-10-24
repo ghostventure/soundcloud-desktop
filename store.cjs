@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID, createHash } = require('node:crypto');
 const workspaceByteLimit=128*1024*1024;
+const workspaceStorageByteLimit=workspaceByteLimit+64*1024;
 const workspaceRecoveryCountLimit=8;
 const workspaceRecoveryByteLimit=256*1024*1024;
 const workspaceRecoveryIntervalMs=30*60*1000;
@@ -27,7 +28,17 @@ function validate(s) {
   return s;
 }
 function serializeWorkspace(value){const bytes=Buffer.from(JSON.stringify(value),'utf8');if(bytes.length>workspaceByteLimit)throw Error('Workspace data exceeds the 128 MB safe storage limit. Remove old records or shorten large notes before saving.');return bytes;}
-function createStore(dir) {
+function createStore(dir, secureStorage = {}) {
+  const workspaceMagic=Buffer.from('SC-DS-WORKSPACE-DPAPI-V1\n','ascii');
+  const canEncrypt=typeof secureStorage.encrypt==='function'&&typeof secureStorage.decrypt==='function';
+  const isProtected=bytes=>Buffer.isBuffer(bytes)&&bytes.length>workspaceMagic.length&&bytes.subarray(0,workspaceMagic.length).equals(workspaceMagic);
+  const encodeWorkspaceBytes=bytes=>canEncrypt?Buffer.concat([workspaceMagic,Buffer.from(secureStorage.encrypt(bytes.toString('utf8')))]):bytes;
+  const decodeWorkspaceBytes=bytes=>{
+    if(!Buffer.isBuffer(bytes))throw Error('Workspace data is invalid.');
+    if(!isProtected(bytes))return bytes;
+    if(!canEncrypt)throw Error('Windows account encryption is unavailable for this workspace.');
+    return Buffer.from(secureStorage.decrypt(bytes.subarray(workspaceMagic.length)),'utf8');
+  };
   fs.mkdirSync(dir,{recursive:true}); const file=path.join(dir,'workspace.json');
   const previousFile=`${file}.previous`;
   const recoveryDir=path.join(dir,'workspace-recovery');
@@ -37,8 +48,8 @@ function createStore(dir) {
   let queuedWrites=0;
   const hashBytes=bytes=>createHash('sha256').update(bytes).digest('hex');
   const readCurrentBytes=()=>{try{return fs.readFileSync(file);}catch(error){if(error.code==='ENOENT')return null;throw error;}};
-  const readPreviousBytes=()=>{const info=fs.lstatSync(previousFile);if(!info.isFile()||info.isSymbolicLink()||info.size>workspaceByteLimit)throw Error('Invalid previous workspace file.');return fs.readFileSync(previousFile);};
-  const parseWorkspaceBytes=bytes=>{if(!Buffer.isBuffer(bytes)||bytes.length>workspaceByteLimit)throw Error('Workspace recovery candidate exceeds the safe size limit.');return validate(JSON.parse(bytes.toString('utf8')));};
+  const readPreviousBytes=()=>{const info=fs.lstatSync(previousFile);if(!info.isFile()||info.isSymbolicLink()||info.size>workspaceStorageByteLimit)throw Error('Invalid previous workspace file.');return fs.readFileSync(previousFile);};
+  const parseWorkspaceBytes=bytes=>{if(!Buffer.isBuffer(bytes)||bytes.length>workspaceStorageByteLimit)throw Error('Workspace recovery candidate exceeds the safe size limit.');const plain=decodeWorkspaceBytes(bytes);if(plain.length>workspaceByteLimit)throw Error('Workspace recovery candidate exceeds the safe size limit.');return validate(JSON.parse(plain.toString('utf8')));};
   const recoverySummary=(id,source,capturedAt,bytes,value)=>({id,source,capturedAt,sizeBytes:bytes.length,profileName:value.profile.name,trackCount:value.tracks.length,releaseCount:value.releases.length,campaignCount:value.campaigns.length});
   const readRecoveryCandidates=()=>{
     const candidates=[];
@@ -46,7 +57,7 @@ function createStore(dir) {
     let reservedReadBytes=0;
     try{
       const info=fs.lstatSync(previousFile);
-      if(info.isFile()&&!info.isSymbolicLink()&&info.size<=workspaceByteLimit&&info.size<=workspaceRecoveryByteLimit){
+      if(info.isFile()&&!info.isSymbolicLink()&&info.size<=workspaceStorageByteLimit&&info.size<=workspaceRecoveryByteLimit){
         reservedReadBytes+=info.size;
         const bytes=fs.readFileSync(previousFile),value=parseWorkspaceBytes(bytes),hash=hashBytes(bytes);
         hashes.add(hash);
@@ -64,7 +75,7 @@ function createStore(dir) {
           const name=entry.name,match=workspaceRecoveryName.exec(name);if(!match||!entry.isFile())continue;
           const full=path.join(recoveryDir,name);
           try{
-            const info=fs.lstatSync(full);if(!info.isFile()||info.isSymbolicLink()||info.size>workspaceByteLimit)continue;
+            const info=fs.lstatSync(full);if(!info.isFile()||info.isSymbolicLink()||info.size>workspaceStorageByteLimit)continue;
             history.push({name,full,hash:match[2],capturedAt:Number(match[1]),size:info.size});
             history.sort((a,b)=>b.capturedAt-a.capturedAt);
             if(history.length>workspaceRecoveryCountLimit)history.pop();
@@ -135,41 +146,41 @@ function createStore(dir) {
   if (fs.existsSync(file)) {
     const primaryBytes=fs.readFileSync(file);
     diskHash=hashBytes(primaryBytes);
-    try { state=validate(JSON.parse(primaryBytes.toString('utf8'))); }
+    try { state=parseWorkspaceBytes(primaryBytes); }
     catch (primaryError) {
       try {
         const previousBytes=readPreviousBytes();
-        state=validate(JSON.parse(previousBytes.toString('utf8')));
+        state=parseWorkspaceBytes(previousBytes);
         recoveredFromPrevious=true;
       } catch { throw primaryError; }
     }
     if(!recoveredFromPrevious)for (const candidate of tempFiles()) {
       if (candidate.age < 24*60*60*1000) continue;
       try {
-        validate(JSON.parse(fs.readFileSync(candidate.full,'utf8')));
+        parseWorkspaceBytes(fs.readFileSync(candidate.full));
         fs.rmSync(candidate.full,{force:true});
       } catch { try { fs.rmSync(candidate.full,{force:true}); } catch { /* Leave a locked scratch file for a later startup. */ } }
     }
   } else {
     try {
-      state=validate(JSON.parse(readPreviousBytes().toString('utf8')));
+      state=parseWorkspaceBytes(readPreviousBytes());
       recoveredFromPrevious=true;
     } catch {
       const candidates=tempFiles();
       if (candidates.length===1 && candidates[0].age>=24*60*60*1000) {
         try {
           const candidateBytes=fs.readFileSync(candidates[0].full);
-          state=validate(JSON.parse(candidateBytes.toString('utf8')));
+          state=parseWorkspaceBytes(candidateBytes);
           fs.linkSync(candidates[0].full,file);
           diskHash=hashBytes(candidateBytes);
           try { fs.rmSync(candidates[0].full,{force:true}); } catch { /* The valid workspace is also present at the primary path. */ }
-        } catch { state=fs.existsSync(file)?validate(JSON.parse(fs.readFileSync(file,'utf8'))):blank(); }
+        } catch { state=fs.existsSync(file)?parseWorkspaceBytes(fs.readFileSync(file)):blank(); }
       } else state=blank();
     }
   }
   let pendingWrite=Promise.resolve();
   function persist(next){
-    const bytes=serializeWorkspace(next);
+    const bytes=encodeWorkspaceBytes(serializeWorkspace(next));
     queuedWrites++;
     const task=pendingWrite.then(async()=>{
       const temp=`${file}.${randomUUID()}.tmp`;
@@ -195,7 +206,7 @@ function createStore(dir) {
     pendingWrite=task.then(()=>{queuedWrites--;},()=>{queuedWrites--;});
     return task;
   }
-  function write(value){if(queuedWrites)throw Error('A workspace update is already being saved.');const next=structuredClone(value);validate(next);const bytes=serializeWorkspace(next);const temp=`${file}.${randomUUID()}.tmp`;let fd;try{const currentBytes=readCurrentBytes();ensureWorkspaceUnchanged(currentBytes);preservePrevious(currentBytes);fd=fs.openSync(temp,'wx');fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;ensureWorkspaceUnchanged(readCurrentBytes());fs.renameSync(temp,file);state=next;diskHash=hashBytes(bytes);recoveredFromPrevious=false;return structuredClone(state);}catch(error){if(fd!==undefined){try{fs.closeSync(fd);}catch{}}try{fs.rmSync(temp,{force:true});}catch{}throw error;}}
+  function write(value){if(queuedWrites)throw Error('A workspace update is already being saved.');const next=structuredClone(value);validate(next);const bytes=encodeWorkspaceBytes(serializeWorkspace(next));const temp=`${file}.${randomUUID()}.tmp`;let fd;try{const currentBytes=readCurrentBytes();ensureWorkspaceUnchanged(currentBytes);preservePrevious(currentBytes);fd=fs.openSync(temp,'wx',0o600);fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;ensureWorkspaceUnchanged(readCurrentBytes());fs.renameSync(temp,file);state=next;diskHash=hashBytes(bytes);recoveredFromPrevious=false;return structuredClone(state);}catch(error){if(fd!==undefined){try{fs.closeSync(fd);}catch{}}try{fs.rmSync(temp,{force:true});}catch{}throw error;}}
   function writeAsync(value){const next=structuredClone(value);validate(next);return persist(next);}
   function writeRenderer(value){
     const next=structuredClone(value);validate(next);
@@ -217,13 +228,51 @@ function createStore(dir) {
     if(!candidate)throw Error('That workspace recovery point is missing or no longer valid.');
     return writeAsync(candidate.value);
   }
+  function protectedWorkspaceFiles(){
+    const files=[file,previousFile,...tempFiles().map(item=>item.full)];
+    try{
+      const directory=fs.lstatSync(recoveryDir);
+      if(directory.isDirectory()&&!directory.isSymbolicLink()){
+        for(const name of fs.readdirSync(recoveryDir))if(workspaceRecoveryName.test(name))files.push(path.join(recoveryDir,name));
+      }else return {files,complete:false};
+    }catch(error){if(error.code!=='ENOENT')return {files,complete:false};}
+    return {files:[...new Set(files)],complete:true};
+  }
+  function protectWorkspaceFiles(){
+    if(!canEncrypt)return {encrypted:false,complete:false};
+    let complete=true;
+    const list=protectedWorkspaceFiles();if(!list.complete)complete=false;
+    for(const target of list.files){
+      let info,bytes;
+      try{info=fs.lstatSync(target);if(!info.isFile()||info.isSymbolicLink()||info.size>workspaceStorageByteLimit){complete=false;continue;}bytes=fs.readFileSync(target);}catch(error){if(error.code!=='ENOENT')complete=false;continue;}
+      if(isProtected(bytes))continue;
+      let encrypted;
+      try{parseWorkspaceBytes(bytes);encrypted=encodeWorkspaceBytes(bytes);parseWorkspaceBytes(encrypted);}catch{complete=false;continue;}
+      const match=workspaceRecoveryName.exec(path.basename(target));
+      const replacement=match?path.join(recoveryDir,`workspace-${match[1]}-${hashBytes(encrypted)}.json`):target;
+      const temp=`${target}.${randomUUID()}.protect`;
+      let fd;
+      try{
+        fd=fs.openSync(temp,'wx',0o600);fs.writeFileSync(fd,encrypted);fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;
+        fs.renameSync(temp,replacement);
+        if(replacement!==target){try{fs.rmSync(target,{force:true});}catch{complete=false;}}
+        if(target===file)diskHash=hashBytes(encrypted);
+      }catch{complete=false;if(fd!==undefined){try{fs.closeSync(fd);}catch{}}try{fs.rmSync(temp,{force:true});}catch{}}
+    }
+    const finalList=protectedWorkspaceFiles();
+    if(!finalList.complete)complete=false;
+    for(const target of finalList.files){try{const bytes=fs.readFileSync(target);if(!isProtected(bytes))complete=false;}catch{complete=false;}}
+    return {encrypted:complete,complete};
+  }
+  const storageProtection=protectWorkspaceFiles();
   function health(){
     let directoryReadable=false,directoryWritable=false,workspaceReadable=true,workspaceValid=true;
     try{fs.accessSync(dir,fs.constants.R_OK);directoryReadable=true;}catch{}
     try{fs.accessSync(dir,fs.constants.W_OK);directoryWritable=true;}catch{}
-    try{const bytes=readCurrentBytes();if(bytes!==null){fs.accessSync(file,fs.constants.R_OK);validate(JSON.parse(bytes.toString('utf8')));if(hashBytes(bytes)!==diskHash)workspaceValid=false;}}catch{workspaceReadable=false;workspaceValid=false;}
+    let workspaceEncryptedAtRest=!fs.existsSync(file)&&storageProtection.encrypted;
+    try{const bytes=readCurrentBytes();if(bytes!==null){fs.accessSync(file,fs.constants.R_OK);parseWorkspaceBytes(bytes);workspaceEncryptedAtRest=isProtected(bytes)&&storageProtection.complete;if(hashBytes(bytes)!==diskHash)workspaceValid=false;}}catch{workspaceReadable=false;workspaceValid=false;}
     if(recoveredFromPrevious)workspaceValid=false;
-    return {ok:directoryReadable&&directoryWritable&&workspaceReadable&&workspaceValid,checks:{dataDirectoryReadable:directoryReadable,dataDirectoryWritable:directoryWritable,workspaceReadable,workspaceValid}};
+    return {ok:directoryReadable&&directoryWritable&&workspaceReadable&&workspaceValid&&workspaceEncryptedAtRest,checks:{dataDirectoryReadable:directoryReadable,dataDirectoryWritable:directoryWritable,workspaceReadable,workspaceValid,workspaceEncryptedAtRest}};
   }
   return {read:()=>structuredClone(state),write,writeAsync,writeRenderer,asset,recoveryCandidates,restoreRecovery,health,flush:()=>pendingWrite,file};
 }

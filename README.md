@@ -4,7 +4,7 @@ Created and published by Black Lion Studios. Black Lion Studios supports SoundCl
 
 ## Current project version
 
-The current source and package metadata are version 1.0.0. It includes API-backed SoundCloud activity, comments review, followed-artist recent tracks, sync-based performance milestones, and CSV export. The installer is named **SC-DS Installation Manager**; GitHub release availability is tracked separately. See the [1.0.0 release notes](docs/RELEASE-1.0.0.md), [Windows installer and runtime requirements](docs/WINDOWS-INSTALLER.md), and [SC Artist user guide](docs/USER-GUIDE.md).
+The current source and package metadata are version 1.0.0. It includes API-backed SoundCloud activity, comments review, followed-artist recent tracks, sync-based performance milestones, and CSV export. The installer is named **SC-DS Installation Manager**; GitHub release availability is tracked separately. See the [1.0.0 release notes](docs/RELEASE-1.0.0.md), [Windows installer and runtime requirements](docs/WINDOWS-INSTALLER.md), [SC Artist user guide](docs/USER-GUIDE.md), and [security and local data protection](docs/SECURITY-1.0.0.md).
 
 Version 0.2.7 added catalog filters and comparison tools, track review and detail tools, workspace accessibility and navigation options, and encrypted multi-account switching. Backend catalog snapshots and workspace saves also use less memory and disk space. See [0.2.7 release notes](docs/RELEASE-0.2.7.md).
 
@@ -46,7 +46,7 @@ The app is an Electron desktop application targeting 64-bit Windows 10 and 11. I
 - Responsive 100-row library/catalog pages, asynchronous serialized workspace saves, and faster audio/media file lookups; see [performance notes](docs/PERFORMANCE-0.2.1.md).
 - SoundCloud catalog snapshots keep 2,000 description characters per track, normalize pages as they arrive, and remain sequentially paginated; internal workspace JSON is compact while exported backups stay readable.
 
-The Windows installer is unsigned, so Windows may show an unknown publisher warning. Update verification checks installer bytes against GitHub's release SHA-256 metadata, not an Authenticode publisher signature. In-app updates always open setup visibly for review. Silent setup is allowed only for a Windows account that already has a complete, matching consent record; first install requires interactive consent. Uninstall removes the program but preserves the workspace and encrypted credential file in the existing `%APPDATA%\Soundcloud Desktop` location.
+Windows release builds require a Black Lion Studios Authenticode certificate. The updater checks the installer against GitHub release SHA-256 metadata and validates that publisher signature before visibly opening setup. A signed v1.0.0 installer must be built before distribution; the earlier unsigned package does not pass the updater's publisher check. Silent setup is allowed only for a Windows account that already has a complete, matching consent record; first install requires interactive consent. Uninstall removes the program but preserves workspace and encrypted account data in `%APPDATA%\Soundcloud Desktop`.
 
 After browser authorization, the localhost callback is detected by the app, the returned account is verified, and encrypted refresh tokens enable automatic sign-in on later launches. Browser cookies and passwords are never imported. For automatic local library import, put supported audio in `Music\Soundcloud Desktop Inbox`; the startup scan references files in place and does not move or upload them.
 

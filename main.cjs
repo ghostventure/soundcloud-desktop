@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,protocol,net,Tray,Menu,nativeTheme,Notification}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,protocol,net,Tray,Menu,nativeTheme,Notification,safeStorage}=require('electron');
 const fs=require('node:fs'); const path=require('node:path'); const {pathToFileURL,fileURLToPath}=require('node:url');
 const {isDeepStrictEqual}=require('node:util');
 const os=require('node:os');
@@ -36,10 +36,15 @@ function notifyHidden(kind){
  try{const notification=new Notification({title:message[0],body:message[1]});notification.on('click',()=>{if(!win||win.isDestroyed())createWindow();else{win.show();win.focus();}});notification.show();}catch{}
 }
 function createWindow(){
- win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'SC-DS — Artist workspace',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:!app.isPackaged}});
+ win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'SC-DS — Artist workspace',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webviewTag:false,webSecurity:true,allowRunningInsecureContent:false,devTools:!app.isPackaged}});
  win.removeMenu(); win.loadFile(path.join(__dirname,'ui/index.html')); win.once('ready-to-show',()=>{theme(store.read().profile.theme);win.show();});
- win.webContents.setWindowOpenHandler(()=>({action:'deny'})); win.webContents.on('will-navigate',e=>e.preventDefault());
+ win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+ win.webContents.on('will-navigate',e=>e.preventDefault());
+ win.webContents.on('will-redirect',e=>e.preventDefault());
+ win.webContents.on('will-attach-webview',e=>e.preventDefault());
  win.webContents.session.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
+ win.webContents.session.setPermissionCheckHandler(()=>false);
+ win.webContents.session.on('will-download',(_event,item)=>item.cancel());
  win.webContents.on('render-process-gone',(_event,details)=>{const reason=['clean-exit','abnormal-exit','killed','crashed','oom','launch-failed','integrity-failure'].includes(details.reason)?details.reason:'unknown';if(reason!=='clean-exit')recordDiagnostic('renderer-crash','renderer process stopped',reason);if(win&&!quitting&&reason!=='clean-exit'){dialog.showMessageBox(win,{type:'error',message:'The workspace stopped responding.',detail:'Your saved library and release plans are preserved. Reload the workspace to continue.',buttons:['Reload workspace','Close app']}).then(({response})=>{if(response===0)win?.reload();else app.quit();});}});
  win.on('closed',()=>{win=null;});
  win.on('close',e=>{if(uploadController&&!quitting){e.preventDefault();win.hide();}});
@@ -278,6 +283,28 @@ async function hashStagedInstaller(file,expectedSize){
  try{for await(const chunk of fs.createReadStream(file)){total+=chunk.length;if(total>updateMaxBytes)return null;hash.update(chunk);}}catch{return null;}
  return total===expectedSize?hash.digest('hex'):null;
 }
+function verifyInstallerPublisherSignature(file){
+ if(process.platform!=='win32')return Promise.reject(Error('Windows publisher-signature verification is required before opening updates.'));
+ const powershell=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
+ const command="$ErrorActionPreference='Stop'; $s=Get-AuthenticodeSignature -LiteralPath $env:SC_DS_AUTHENTICODE_FILE; $subject=''; if($s.SignerCertificate){$subject=$s.SignerCertificate.Subject}; $result=[pscustomobject]@{status=[string]$s.Status;subject=[string]$subject}; [Console]::Out.Write((ConvertTo-Json -InputObject $result -Compress))";
+ return new Promise((resolve,reject)=>{
+  let child,output='',settled=false;
+  const finish=(error)=>{if(settled)return;settled=true;clearTimeout(timer);if(error)reject(error);else resolve();};
+  const timer=setTimeout(()=>{child?.kill();finish(Error('Windows publisher-signature verification timed out.'))},20000);
+  try{child=spawn(powershell,['-NoLogo','-NoProfile','-NonInteractive','-Command',command],{shell:false,windowsHide:true,stdio:['ignore','pipe','ignore'],env:{...process.env,SC_DS_AUTHENTICODE_FILE:file}});}catch{finish(Error('Windows publisher-signature verification is unavailable.'));return;}
+  child.stdout.setEncoding('utf8');child.stdout.on('data',chunk=>{output+=chunk;if(output.length>8192){child.kill();finish(Error('Windows returned an invalid publisher-signature result.'));}});
+  child.once('error',()=>finish(Error('Windows publisher-signature verification is unavailable.')));
+  child.once('close',code=>{
+   if(code!==0){finish(Error('Windows could not verify the update publisher.'));return;}
+   try{
+    const result=JSON.parse(output);
+    const trustedName=typeof result.subject==='string'&&/(?:^|,\s*)(?:CN|O)=Black Lion Studios(?:\s*,|$)/i.test(result.subject);
+    if(result.status!=='Valid'||!trustedName)throw Error();
+    finish();
+   }catch{finish(Error('The update is not signed by a trusted Black Lion Studios publisher.'));}
+  });
+ });
+}
 function sendUpdateProgress(data){try{if(win&&!win.isDestroyed())win.webContents.send('update:progress',data);}catch{}}
 async function fetchReleaseAsset(url,signal){
  const allowedHosts=new Set(['github.com','release-assets.githubusercontent.com','objects.githubusercontent.com']);
@@ -308,7 +335,7 @@ async function downloadGitHubUpdate(version){
   if(controller.signal.aborted)throw Error('Update download canceled.');
   const directory=await resolveStagingDirectory(),target=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
   const existingHash=await hashStagedInstaller(target,installer.size);
-  if(existingHash===installer.digest)return {downloaded:true,version,size:installer.size,digest:installer.digest,reused:true};
+  if(existingHash===installer.digest){await verifyInstallerPublisherSignature(target);return {downloaded:true,version,size:installer.size,digest:installer.digest,reused:true};}
   try{await fs.promises.unlink(target);}catch(error){if(error.code!=='ENOENT')throw Error('The previous staged installer could not be replaced.');}
   const response=await fetchReleaseAsset(installer.downloadUrl,controller.signal);
   const lengthHeader=response.headers.get('content-length'),declared=lengthHeader===null?NaN:Number(lengthHeader);
@@ -328,6 +355,7 @@ async function downloadGitHubUpdate(version){
   sendUpdateProgress({version,phase:'verifying',received,total:installer.size});
   const actualDigest=hash.digest('hex');if(actualDigest!==installer.digest)throw Error('The installer SHA-256 did not match GitHub release metadata.');
   await handle.sync();await handle.close();handle=null;
+  await verifyInstallerPublisherSignature(temp);
   await fs.promises.rename(temp,target);temp='';
   sendUpdateProgress({version,phase:'complete',received,total:installer.size});
   return {downloaded:true,version,size:installer.size,digest:installer.digest};
@@ -351,9 +379,11 @@ async function installGitHubUpdate(version){
  if(!installer||!offer.available||offer.latestVersion!==version)throw Error('No newer verified installed-build update is available. Check GitHub again.');
  const directory=await resolveStagingDirectory(),file=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
  if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer is missing or failed its SHA-256 check. Download and verify it again.');
+ await verifyInstallerPublisherSignature(file);
  const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Open installer'],defaultId:0,cancelId:0,message:`Open the verified SC-DS ${version} installer?`,detail:'The setup program will open for you to review and run. No update is installed silently; close the setup window to cancel.'});
  if(answer.response!==1)return {started:false,canceled:true};
  if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer changed after review. Download and verify it again.');
+ await verifyInstallerPublisherSignature(file);
  await new Promise((resolve,reject)=>{
   let child;try{child=spawn(file,[],{shell:false,detached:true,stdio:'ignore',windowsHide:false});}catch{reject(Error('Windows could not start the verified installer.'));return;}
   child.once('error',()=>reject(Error('Windows could not start the verified installer.')));
@@ -377,7 +407,7 @@ async function cleanupOldUpdateStaging(){
 async function collectBackendHealth(){
  const storage=async()=>{
   if(typeof store?.health!=='function')return {available:false,ok:false,checks:{}};
-  try{return projectHealth(await store.health(),['dataDirectoryReadable','dataDirectoryWritable','workspaceReadable','workspaceValid']);}
+  try{return projectHealth(await store.health(),['dataDirectoryReadable','dataDirectoryWritable','workspaceReadable','workspaceValid','workspaceEncryptedAtRest']);}
   catch(error){const text=redactDiagnosticText(error?.message||error);recordDiagnostic('workspace-health',text);return {available:true,ok:false,checks:{},errorCategory:diagnosticCategory(text)};}
  };
  const soundcloud=async()=>{
@@ -482,17 +512,18 @@ function serializeWorkspaceBackup(workspace){
  if(Buffer.byteLength(contents,'utf8')>maxWorkspaceBytes)throw Error('Workspace backups must be 32 MB or smaller.');
  return contents;
 }
-function createUploadJournal(dir){
- const file=path.join(dir,'upload-jobs.json');let jobs=[];
+function createUploadJournal(dir,storage){
+ const file=path.join(dir,'upload-jobs.json'),magic=Buffer.from('SC-DS-UPLOAD-DPAPI-V1\n','ascii');let jobs=[],needsProtection=false;
+ if(typeof storage?.encrypt!=='function'||typeof storage?.decrypt!=='function')throw Error('Windows account encryption is unavailable for upload history.');
  if(fs.existsSync(file)){
-  let saved;try{const stat=fs.statSync(file);if(!stat.isFile()||stat.size>1024*1024)throw Error();saved=JSON.parse(fs.readFileSync(file,'utf8'));}catch{throw Error('Saved upload history could not be read. The file was left untouched, and uploads are paused until the history can be recovered.');}
+  let saved;try{const stat=fs.lstatSync(file);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>1024*1024+4096)throw Error();const bytes=fs.readFileSync(file),protectedFile=bytes.subarray(0,magic.length).equals(magic);needsProtection=!protectedFile;saved=JSON.parse(protectedFile?storage.decrypt(bytes.subarray(magic.length)):bytes.toString('utf8'));}catch{throw Error('Saved upload history could not be read. The file was left untouched, and uploads are paused until the history can be recovered.');}
   const statuses=['uploading','outcome-unknown','accepted','failed','acknowledged'];
   if(saved?.version!==1||!Array.isArray(saved.jobs)||saved.jobs.length>500||saved.jobs.some(job=>!plainObject(job)||typeof job.id!=='string'||!recordIdPattern.test(job.id)||typeof job.trackId!=='string'||!recordIdPattern.test(job.trackId)||typeof job.title!=='string'||job.title.length>180||!statuses.includes(job.status)||!Number.isFinite(job.progress)||job.progress<0||job.progress>100||typeof job.startedAt!=='string'||typeof job.updatedAt!=='string'||typeof job.message!=='string'||job.message.length>240||(job.remoteId!==undefined&&(typeof job.remoteId!=='string'||job.remoteId.length>128))||(job.remoteUrl!==undefined&&(typeof job.remoteUrl!=='string'||job.remoteUrl.length>2048||(job.remoteUrl!==''&&!safeSoundCloudUrl(job.remoteUrl))))))throw Error('Saved upload history has an unsupported format. The file was left untouched, and uploads are paused until the history can be recovered.');
   jobs=saved.jobs;
  }
  function write(){
   const temp=`${file}.${randomUUID()}.tmp`;
-  try{fs.writeFileSync(temp,JSON.stringify({version:1,jobs}),{flag:'wx',mode:0o600});fs.renameSync(temp,file);}
+  try{const plain=JSON.stringify({version:1,jobs}),bytes=Buffer.concat([magic,Buffer.from(storage.encrypt(plain))]);if(bytes.length>1024*1024)throw Error('Upload history exceeded its safe size limit.');const fd=fs.openSync(temp,'wx',0o600);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(temp,file);needsProtection=false;}
   catch(error){try{fs.rmSync(temp,{force:true});}catch{}throw Error(`Upload history could not be saved: ${error.message}`);}
  }
  let interrupted=false;
@@ -503,6 +534,7 @@ function createUploadJournal(dir){
   const history=jobs.filter(job=>job.status!=='uploading'&&job.status!=='outcome-unknown'&&job.status!=='accepted').slice(0,100);
   jobs=[...active,...history];
  }
+ if(needsProtection)write();
  function get(id){return jobs.find(job=>job.id===id);}
  return {
   begin({trackId,title,accountId,accountLabel}){
@@ -525,9 +557,10 @@ function createUploadJournal(dir){
 if(!app.requestSingleInstanceLock()) app.quit(); else {
  app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
  app.whenReady().then(()=>{
-  try{store=createStore(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('workspace-startup',message);dialog.showErrorBox('Workspace could not be opened',message+'\nYour existing data has been preserved.');app.quit();return;}
+  const localStorage={encrypt:value=>safeStorage.encryptString(value),decrypt:value=>safeStorage.decryptString(value)};
+  try{if(!safeStorage.isEncryptionAvailable())throw Error('Windows account encryption is unavailable.');store=createStore(app.getPath('userData'),localStorage);}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('workspace-startup',message);dialog.showErrorBox('Workspace could not be opened',message+'\nYour existing data has been preserved.');app.quit();return;}
   void cleanupOldUpdateStaging();
-  try{uploadJournal=createUploadJournal(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('upload-journal-startup',message);dialog.showErrorBox('Upload recovery history unavailable',message);}
+  try{uploadJournal=createUploadJournal(app.getPath('userData'),localStorage);}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('upload-journal-startup',message);dialog.showErrorBox('Upload recovery history unavailable',message);}
   protocol.handle('studio',async request=>{
    let u;try{u=new URL(request.url);}catch{return new Response('File unavailable',{status:404});}
    if(request.method!=='GET'||u.protocol!=='studio:'||u.username||u.password||u.port||u.search||u.hash)return new Response('File unavailable',{status:404});
@@ -691,7 +724,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   handler('audio:reveal',id=>{const t=store.read().tracks.find(t=>t.id===id);if(t && fs.existsSync(t.file))shell.showItemInFolder(t.file);else throw Error('The original file was moved or removed.');});
   handler('audio:artwork',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Cover artwork',extensions:['png','jpg','jpeg']}]});if(r.canceled)return store.read();const s=store.read();const t=s.tracks.find(t=>t.id===id);if(!t)throw Error('Track not found.');t.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
   handler('artwork:pick',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Artwork',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled)return store.read();const s=store.read();const release=s.releases.find(r=>r.id===id);if(!release)throw Error('Release not found');release.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
-  handler('workspace:backup',async()=>{const r=await dialog.showSaveDialog(win,{defaultPath:'Soundcloud Desktop-workspace.json',filters:[{name:'Workspace backup',extensions:['json']}]});if(!r.canceled){await store.flush();await fs.promises.writeFile(r.filePath,serializeWorkspaceBackup(store.read()),'utf8');return true;}return false;});
+  handler('workspace:backup',async()=>{const notice=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Choose backup location'],defaultId:0,cancelId:0,message:'Protect your workspace backup',detail:'The exported JSON backup is readable and is not encrypted by SC-DS. It includes profile details, workspace notes, local file paths, track titles, and upload receipts, but excludes SoundCloud login credentials and audio bytes. Save it only in a folder you control.'});if(notice.response!==1)return false;const r=await dialog.showSaveDialog(win,{defaultPath:'SC-DS-workspace-backup.json',filters:[{name:'Workspace backup',extensions:['json']}]});if(!r.canceled){await store.flush();await fs.promises.writeFile(r.filePath,serializeWorkspaceBackup(store.read()),'utf8');return true;}return false;});
   handler('workspace:restore',async()=>{
    const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Workspace backup',extensions:['json']}]});if(r.canceled)return null;
    const {validate}=require('./store.cjs'),backup=await readWorkspaceBackup(r.filePaths[0]),next=validate(backup.workspace),current=store.read();
