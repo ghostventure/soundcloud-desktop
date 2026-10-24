@@ -2,6 +2,8 @@ const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,protocol,net,Tray,Menu,n
 const fs=require('node:fs'); const path=require('node:path'); const {pathToFileURL,fileURLToPath}=require('node:url');
 const {isDeepStrictEqual}=require('node:util');
 const os=require('node:os');
+const crypto=require('node:crypto');
+const {spawn}=require('node:child_process');
 const {createStore,randomUUID}=require('./store.cjs');
 const testDir=!app.isPackaged&&process.env.CLOUDROOM_TEST_DATA;
 if(testDir) app.setPath('userData',testDir);
@@ -9,6 +11,10 @@ protocol.registerSchemesAsPrivileged([{scheme:'studio',privileges:{standard:true
 app.setAppUserModelId('com.soundclouddesktop.artist');
 if(app.isPackaged){for(const flag of ['remote-debugging-port','remote-debugging-pipe','inspect','inspect-brk'])app.commandLine.removeSwitch(flag);}
 let win,store,tray,uploadController,account,uploadJournal; let quitting=false;
+let updateDownloadController=null,updateDownloadActive=false,updateInstallActive=false;
+const updateRepo={owner:'ghostventure',name:'soundcloud-desktop'};
+const updateVersionPattern=/^v?(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/;
+const updateMaxBytes=250*1024*1024;
 const diagnosticEvents=[];
 const safeDiagnosticCodes=new Set(['SC_UPLOAD_UNCERTAIN','EACCES','EADDRINUSE','EAI_AGAIN','ECONNRESET','ECONNREFUSED','EHOSTUNREACH','EIO','EINVAL','EISDIR','ENETUNREACH','ENOSPC','ENOENT','ENOTDIR','EPIPE','EPERM','ETIMEDOUT']);
 const urls={home:'https://soundcloud.com',upload:'https://soundcloud.com/upload',insights:'https://soundcloud.com/you/insights',tracks:'https://soundcloud.com/you/tracks',api:'https://developers.soundcloud.com/docs/api/register-app'};
@@ -97,6 +103,10 @@ const ipcContracts={
  'audio:upload-acknowledge':{args:[idArg('upload job ID')],limit:30,window:10000},
  'backend:health':{args:[],limit:30,window:10000},
  'diagnostics:export':{args:[],limit:4,window:60000},
+ 'update:check':{args:[],limit:6,window:60000},
+ 'update:download':{args:[stringArg('update version',32,{min:5,pattern:updateVersionPattern})],limit:2,window:60000},
+ 'update:cancel':{args:[],limit:10,window:10000},
+ 'update:install':{args:[stringArg('update version',32,{min:5,pattern:updateVersionPattern})],limit:3,window:60000},
  'workspace:read':{args:[],limit:120,window:10000},
  'workspace:save':{args:[workspaceArg],limit:30,window:10000},
  'audio:import':{args:[],limit:10,window:10000},
@@ -162,6 +172,180 @@ function projectSyncCheckpoint(raw){
  for(const key of ['startedAt','lastUpdated'])if(typeof raw[key]==='string'&&raw[key].length<=40&&Number.isFinite(Date.parse(raw[key])))checkpoint[key]=new Date(raw[key]).toISOString();
  if(typeof raw.errorCode==='string'&&/^[a-z0-9_-]{1,64}$/i.test(raw.errorCode))checkpoint.errorCode=raw.errorCode;
  return Object.keys(checkpoint).length?checkpoint:undefined;
+}
+function parsedUpdateVersion(value){
+ const match=typeof value==='string'?value.match(updateVersionPattern):null;
+ return match?match.slice(1).map(Number):null;
+}
+function compareUpdateVersions(left,right){
+ for(let i=0;i<3;i++)if(left[i]!==right[i])return left[i]>right[i]?1:-1;
+ return 0;
+}
+function updateVersionText(parts){return parts.join('.');}
+async function readLimitedBody(response,maxBytes){
+ const lengthHeader=response.headers.get('content-length'),declared=lengthHeader===null?NaN:Number(lengthHeader);
+ if(Number.isFinite(declared)&&declared>maxBytes)throw Error('GitHub returned an oversized update response.');
+ if(!response.body)throw Error('GitHub returned an empty update response.');
+ const chunks=[];let total=0;
+ for await(const chunk of response.body){total+=chunk.length;if(total>maxBytes)throw Error('GitHub returned an oversized update response.');chunks.push(Buffer.from(chunk));}
+ return Buffer.concat(chunks,total);
+}
+async function requestGitHubRelease(signal){
+ let response;
+ try{response=await fetch(`https://api.github.com/repos/${updateRepo.owner}/${updateRepo.name}/releases/latest`,{method:'GET',redirect:'error',signal,headers:{Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','User-Agent':'SoundcloudDesktop-Updater'}});}
+ catch(error){if(signal?.aborted)throw Error('GitHub update check timed out or was canceled.');throw Error('Could not reach GitHub to check for updates.');}
+ if(response.status===403||response.status===429)throw Error('GitHub limited update requests. Try again later.');
+ if(response.status===404)throw Error('No published GitHub release was found.');
+ if(!response.ok)throw Error('GitHub could not provide update information.');
+ let data;try{data=JSON.parse((await readLimitedBody(response,2*1024*1024)).toString('utf8'));}catch(error){if(error instanceof SyntaxError)throw Error('GitHub returned invalid update information.');if(signal?.aborted)throw Error('GitHub update check timed out or was canceled.');throw error;}
+ if(!plainObject(data)||!plainObject(data.author)||!Array.isArray(data.assets))throw Error('GitHub returned invalid update information.');
+ return data;
+}
+function selectUpdateInstaller(release,releaseVersion){
+ const matching=release.assets.filter(asset=>{
+  if(!plainObject(asset)||asset.state!=='uploaded'||typeof asset.name!=='string')return false;
+  const match=asset.name.match(/^soundcloud[ .]desktop[ .-]+setup[ .-]+v?((?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5}))\.exe$/i);
+  const version=match&&parsedUpdateVersion(match[1]);
+  return !!version&&compareUpdateVersions(version,releaseVersion)===0;
+ });
+ if(matching.length!==1)throw Error('This GitHub release does not contain one unambiguous Windows installer.');
+ const asset=matching[0];
+ if(!Number.isSafeInteger(asset.size)||asset.size<1024*1024||asset.size>updateMaxBytes)throw Error('The Windows installer size is outside the allowed limit.');
+ if(typeof asset.digest!=='string'||!/^sha256:[a-f0-9]{64}$/i.test(asset.digest))throw Error('This release does not provide the SHA-256 metadata required to verify its installer.');
+ let download;try{download=new URL(asset.browser_download_url);}catch{throw Error('The Windows installer link is invalid.');}
+ const expectedPath=`/${updateRepo.owner}/${updateRepo.name}/releases/download/${release.tag_name}/${asset.name}`;
+ let decodedPath;try{decodedPath=decodeURIComponent(download.pathname);}catch{throw Error('The Windows installer link is invalid.');}
+ if(download.protocol!=='https:'||download.hostname.toLowerCase()!=='github.com'||download.port||download.username||download.password||download.search||download.hash||decodedPath!==expectedPath)throw Error('The Windows installer link is outside the official GitHub release.');
+ return {name:asset.name,size:asset.size,digest:asset.digest.slice(7).toLowerCase(),downloadUrl:download.href};
+}
+async function fetchVerifiedUpdate(expectedVersion,signal){
+ const currentParts=parsedUpdateVersion(app.getVersion());
+ if(!currentParts)throw Error('The installed app version cannot be compared safely.');
+ if(process.platform!=='win32'||process.arch!=='x64'||process.env.PORTABLE_EXECUTABLE_DIR)return {summary:{supported:false,currentVersion:app.getVersion(),available:false,reason:process.env.PORTABLE_EXECUTABLE_DIR?'In-app update installation is available for installed 64-bit Windows builds, not portable copies.':'Updates from this screen require 64-bit Windows.'},installer:null};
+ let release;
+ try{release=await requestGitHubRelease(signal||AbortSignal.timeout(20000));}
+ catch(error){throw error;}
+ const releaseParts=parsedUpdateVersion(release.tag_name);
+ const expectedReleaseUrl=`https://github.com/${updateRepo.owner}/${updateRepo.name}/releases/tag/${release.tag_name}`;
+ if(!releaseParts||release.draft!==false||release.prerelease!==false||String(release.author.login).toLowerCase()!==updateRepo.owner||release.html_url!==expectedReleaseUrl)throw Error('The latest GitHub release could not be verified.');
+ const latestVersion=updateVersionText(releaseParts);
+ if(expectedVersion&&latestVersion!==expectedVersion)throw Error('The available update changed. Check GitHub again before downloading.');
+ if(compareUpdateVersions(releaseParts,currentParts)<=0)return {summary:{supported:true,currentVersion:app.getVersion(),latestVersion,available:false},installer:null};
+ const installer=selectUpdateInstaller(release,releaseParts);
+ const publishedAt=typeof release.published_at==='string'&&Number.isFinite(Date.parse(release.published_at))?new Date(release.published_at).toISOString():'';
+ const releaseNotes=typeof release.body==='string'?release.body.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'').slice(0,4000):'';
+ return {summary:{supported:true,currentVersion:app.getVersion(),latestVersion,available:true,releaseUrl:expectedReleaseUrl,publishedAt,releaseNotes,installer:{name:installer.name,size:installer.size,digest:installer.digest}},installer};
+}
+async function checkGitHubUpdate(expectedVersion){return (await fetchVerifiedUpdate(expectedVersion)).summary;}
+async function resolveStagingDirectory(){
+ const base=await fs.promises.realpath(app.getPath('userData'));
+ const directory=path.join(base,'updates');await fs.promises.mkdir(directory,{recursive:true});
+ const real=await fs.promises.realpath(directory),relative=path.relative(base,real);
+ if(process.platform==='win32'?relative.toLowerCase()!=='updates':relative!=='updates')throw Error('The update staging directory is not safe to use.');
+ return real;
+}
+async function hashStagedInstaller(file,expectedSize){
+ let stat;try{stat=await fs.promises.lstat(file);}catch{return null;}
+ if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==expectedSize)return null;
+ const hash=crypto.createHash('sha256');let total=0;
+ try{for await(const chunk of fs.createReadStream(file)){total+=chunk.length;if(total>updateMaxBytes)return null;hash.update(chunk);}}catch{return null;}
+ return total===expectedSize?hash.digest('hex'):null;
+}
+function sendUpdateProgress(data){try{if(win&&!win.isDestroyed())win.webContents.send('update:progress',data);}catch{}}
+async function fetchReleaseAsset(url,signal){
+ const allowedHosts=new Set(['github.com','release-assets.githubusercontent.com','objects.githubusercontent.com']);
+ let target=new URL(url);
+ for(let redirects=0;redirects<=3;redirects++){
+  if(target.protocol!=='https:'||!allowedHosts.has(target.hostname.toLowerCase())||target.username||target.password||target.port)throw Error('The installer download left the approved GitHub hosts.');
+  let response;try{response=await fetch(target,{method:'GET',redirect:'manual',signal,headers:{'User-Agent':'SoundcloudDesktop-Updater','Accept':'application/octet-stream'}});}catch(error){if(signal.aborted)throw error;throw Error('The installer could not be downloaded from GitHub.');}
+  if([301,302,303,307,308].includes(response.status)){
+   const location=response.headers.get('location');try{await response.body?.cancel();}catch{}
+   if(!location||redirects===3)throw Error('GitHub returned an invalid installer redirect.');
+   try{target=new URL(location,target);}catch{throw Error('GitHub returned an invalid installer redirect.');}
+   continue;
+  }
+  if(response.status===403||response.status===429)throw Error('GitHub limited installer downloads. Try again later.');
+  if(!response.ok)throw Error('GitHub could not provide the installer.');
+  return response;
+ }
+ throw Error('GitHub returned too many installer redirects.');
+}
+async function downloadGitHubUpdate(version){
+ if(updateInstallActive)throw Error('The verified installer is being opened.');
+ if(updateDownloadActive)throw Error('An update download is already in progress.');
+ updateDownloadActive=true;const controller=new AbortController();updateDownloadController=controller;
+ const timeout=setTimeout(()=>controller.abort('timeout'),10*60*1000);let handle=null,temp='',received=0;
+ try{
+  const verified=await fetchVerifiedUpdate(version,controller.signal),offer=verified.summary,installer=verified.installer;
+  if(!offer.available||offer.latestVersion!==version)throw Error('No newer verified update is available.');
+  if(controller.signal.aborted)throw Error('Update download canceled.');
+  const directory=await resolveStagingDirectory(),target=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
+  const existingHash=await hashStagedInstaller(target,installer.size);
+  if(existingHash===installer.digest)return {downloaded:true,version,size:installer.size,digest:installer.digest,reused:true};
+  try{await fs.promises.unlink(target);}catch(error){if(error.code!=='ENOENT')throw Error('The previous staged installer could not be replaced.');}
+  const response=await fetchReleaseAsset(installer.downloadUrl,controller.signal);
+  const lengthHeader=response.headers.get('content-length'),declared=lengthHeader===null?NaN:Number(lengthHeader);
+  if(Number.isFinite(declared)&&declared!==installer.size)throw Error('GitHub reported an unexpected installer size.');
+  temp=path.join(directory,`SoundcloudDesktop-Setup-${version}.${randomUUID()}.part`);
+  handle=await fs.promises.open(temp,'wx',0o600);
+  const hash=crypto.createHash('sha256');
+  sendUpdateProgress({version,phase:'downloading',received,total:installer.size});
+  if(!response.body)throw Error('GitHub returned an empty installer.');
+  for await(const chunk of response.body){
+   if(controller.signal.aborted)throw Error('Update download canceled.');
+   received+=chunk.length;if(received>installer.size||received>updateMaxBytes)throw Error('The downloaded installer exceeded its published size.');
+   hash.update(chunk);let offset=0;while(offset<chunk.length){const result=await handle.write(chunk,offset,chunk.length-offset,null);if(!result.bytesWritten)throw Error('The installer could not be written to disk.');offset+=result.bytesWritten;}
+   sendUpdateProgress({version,phase:'downloading',received,total:installer.size});
+  }
+  if(received!==installer.size)throw Error('The downloaded installer was incomplete.');
+  sendUpdateProgress({version,phase:'verifying',received,total:installer.size});
+  const actualDigest=hash.digest('hex');if(actualDigest!==installer.digest)throw Error('The installer SHA-256 did not match GitHub release metadata.');
+  await handle.sync();await handle.close();handle=null;
+  await fs.promises.rename(temp,target);temp='';
+  sendUpdateProgress({version,phase:'complete',received,total:installer.size});
+  return {downloaded:true,version,size:installer.size,digest:installer.digest};
+ }catch(error){
+  if(controller.signal.reason==='user-cancel'){sendUpdateProgress({version,phase:'canceled',received,total:0});return {downloaded:false,canceled:true,version};}
+  if(controller.signal.aborted)throw Error('The update download timed out. Try again on a stable connection.');
+  throw error;
+ }finally{
+  clearTimeout(timeout);if(handle)try{await handle.close();}catch{}
+  if(temp)try{await fs.promises.unlink(temp);}catch{}
+  updateDownloadController=null;updateDownloadActive=false;
+ }
+}
+async function installGitHubUpdate(version){
+ if(updateInstallActive)throw Error('The verified installer is already being opened.');
+ if(updateDownloadActive)throw Error('Wait for the update download to finish first.');
+ if(process.platform!=='win32'||process.arch!=='x64')throw Error('The verified installer handoff requires 64-bit Windows.');
+ updateInstallActive=true;
+ try{
+ const verified=await fetchVerifiedUpdate(version),offer=verified.summary,installer=verified.installer;
+ if(!offer.available||offer.latestVersion!==version)throw Error('No newer verified update is available. Check GitHub again.');
+ const directory=await resolveStagingDirectory(),file=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
+ if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer is missing or failed its SHA-256 check. Download and verify it again.');
+ const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Open installer'],defaultId:0,cancelId:0,message:`Open the verified Soundcloud Desktop ${version} installer?`,detail:'The setup program will open for you to review and run. No update is installed silently; close the setup window to cancel.'});
+ if(answer.response!==1)return {started:false,canceled:true};
+ if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer changed after review. Download and verify it again.');
+ await new Promise((resolve,reject)=>{
+  let child;try{child=spawn(file,[],{shell:false,detached:true,stdio:'ignore',windowsHide:false});}catch{reject(Error('Windows could not start the verified installer.'));return;}
+  child.once('error',()=>reject(Error('Windows could not start the verified installer.')));
+  child.once('spawn',()=>{child.unref();resolve();});
+ });
+ app.quit();return {started:true,version};
+ }finally{updateInstallActive=false;}
+}
+async function cleanupOldUpdateStaging(){
+ let directory;try{directory=await resolveStagingDirectory();}catch{return;}
+ let entries;try{entries=await fs.promises.readdir(directory,{withFileTypes:true});}catch{return;}
+ const now=Date.now();
+ for(const entry of entries){
+  if(!entry.isFile()||entry.isSymbolicLink())continue;
+  if(!/^SoundcloudDesktop-Setup-\d+\.\d+\.\d+(?:\.[0-9a-f-]{36})?\.(?:exe|part)$/i.test(entry.name))continue;
+  const file=path.join(directory,entry.name);let stat;try{stat=await fs.promises.lstat(file);}catch{continue;}
+  const maxAge=entry.name.endsWith('.part')?24*60*60*1000:30*24*60*60*1000;
+  if(now-stat.mtimeMs>maxAge)try{await fs.promises.unlink(file);}catch{}
+ }
 }
 async function collectBackendHealth(){
  const storage=async()=>{
@@ -263,6 +447,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
  app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
  app.whenReady().then(()=>{
   try{store=createStore(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('workspace-startup',message);dialog.showErrorBox('Workspace could not be opened',message+'\nYour existing data has been preserved.');app.quit();return;}
+  void cleanupOldUpdateStaging();
   try{uploadJournal=createUploadJournal(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('upload-journal-startup',message);dialog.showErrorBox('Upload recovery history unavailable',message);}
   protocol.handle('studio',async request=>{
    let u;try{u=new URL(request.url);}catch{return new Response('File unavailable',{status:404});}
@@ -299,6 +484,10 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   try{account=require('./connection.cjs').createConnection(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('connection-startup',message);dialog.showErrorBox('SoundCloud connection',message);}
   handler('account:status',()=>account?account.status():{configured:false,connected:false});
   handler('backend:health',()=>collectBackendHealth());
+  handler('update:check',()=>checkGitHubUpdate());
+  handler('update:download',version=>downloadGitHubUpdate(version));
+  handler('update:cancel',()=>{if(!updateDownloadController)return false;updateDownloadController.abort('user-cancel');return true;});
+  handler('update:install',version=>installGitHubUpdate(version));
   handler('diagnostics:export',async()=>{
    const result=await dialog.showSaveDialog(win,{title:'Export privacy-safe support bundle',defaultPath:`Soundcloud-Desktop-support-${new Date().toISOString().slice(0,10)}.json`,filters:[{name:'Support bundle',extensions:['json']}]});
    if(result.canceled||!result.filePath)return {saved:false};

@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('studio',{
   authorize:()=>ipcRenderer.invoke('account:authorize'), sync:()=>ipcRenderer.invoke('account:sync'), disconnect:()=>ipcRenderer.invoke('account:disconnect'),
   upload:(id,metadata)=>ipcRenderer.invoke('audio:upload',id,metadata), uploadJobs:()=>ipcRenderer.invoke('audio:upload-jobs'), acknowledgeUpload:id=>ipcRenderer.invoke('audio:upload-acknowledge',id),
   backendHealth:()=>ipcRenderer.invoke('backend:health'), exportSupportBundle:()=>ipcRenderer.invoke('diagnostics:export'),
+  checkUpdates:()=>ipcRenderer.invoke('update:check'), downloadUpdate:version=>ipcRenderer.invoke('update:download',version),
+  cancelUpdateDownload:()=>ipcRenderer.invoke('update:cancel'), installUpdate:version=>ipcRenderer.invoke('update:install',version),
+  onUpdateProgress:fn=>ipcRenderer.on('update:progress',(_event,data)=>fn(data)),
   trackArtwork:id=>ipcRenderer.invoke('audio:artwork',id),cancelUpload:()=>ipcRenderer.invoke('audio:cancel-upload'),
   onUpload:fn=>ipcRenderer.on('upload:progress',(_event,data)=>fn(data))
 });
