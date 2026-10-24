@@ -18,6 +18,14 @@ const catalogExtraByteLimit = 256 * 1024;
 const catalogFreshnessWindowMs = 24 * 60 * 60 * 1000;
 const syncCheckpointByteLimit = 4096;
 const accountCooldownByteLimit = 4096;
+const oauthScopeLengthLimit = 2048;
+const oauthScopeCountLimit = 32;
+const oauthScopeTokenLengthLimit = 128;
+const apiQuotaSnapshotLimit = 16;
+const apiQuotaStaticPathSegments = new Set([
+  'me', 'tracks', 'users', 'playlists', 'comments', 'favorites', 'likes', 'reposts', 'stream', 'download',
+  'resolve', 'search', 'web-profiles', 'oauth', 'followings', 'followers', 'activities', 'connections'
+]);
 const apiCallTimeoutMs = 30000;
 const catalogSyncDeadlineMs = 5 * 60 * 1000;
 const apiCircuitFailureLimit = 3;
@@ -61,6 +69,66 @@ function retryAfterMs(response, now = Date.now()) {
     if (Number.isFinite(when)) delay = Math.max(0, when - now);
   }
   return Number.isFinite(delay) ? Math.min(Math.max(0, delay), 24 * 60 * 60 * 1000) : undefined;
+}
+
+function sanitizeOAuthScope(value, secrets = []) {
+  if (typeof value !== 'string' || value.length > oauthScopeLengthLimit || /[\r\n\t]/.test(value)) return null;
+  const normalized = value.trim();
+  if (!normalized) return '';
+  const scopes = normalized.split(/ +/);
+  const tokenPattern = /^[\x21\x23-\x5B\x5D-\x7E]{1,128}$/;
+  if (scopes.length > oauthScopeCountLimit || scopes.some(scope => scope.length > oauthScopeTokenLengthLimit || !tokenPattern.test(scope))) return null;
+  const hidden = new Set(secrets.filter(secret => typeof secret === 'string' && secret));
+  return [...new Set(scopes.filter(scope => !hidden.has(scope)))].join(' ');
+}
+
+function quotaHeader(headers, name) {
+  let value;
+  try {
+    value = typeof headers?.get === 'function' ? headers.get(name) : headers?.[name.toLowerCase()];
+  } catch { return ''; }
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function parseQuotaInteger(value) {
+  if (typeof value !== 'string' || !/^\d{1,16}$/.test(value)) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) ? number : null;
+}
+
+function quotaRoute(url, method) {
+  let target;
+  try { target = url instanceof URL ? url : new URL(url); }
+  catch { return ''; }
+  if (target.origin !== 'https://api.soundcloud.com' || !/^(GET|POST|PUT|PATCH|DELETE)$/.test(method)) return '';
+  const segments = target.pathname.split('/').map(segment => {
+    if (!segment) return '';
+    let decoded;
+    try { decoded = decodeURIComponent(segment); } catch { return ':resource'; }
+    if (/^soundcloud:(?:tracks|users|playlists):\d{1,128}$/i.test(decoded)) return ':urn';
+    if (/^\d{1,128}$/.test(decoded)) return ':id';
+    return apiQuotaStaticPathSegments.has(decoded.toLowerCase()) ? decoded.toLowerCase() : ':resource';
+  }).join('/');
+  const route = segments.startsWith('/') ? segments : `/${segments}`;
+  return route.length <= 256 ? route : '';
+}
+
+function observedQuotaSnapshot(headers, url, method, now = Date.now()) {
+  const limit = parseQuotaInteger(quotaHeader(headers, 'x-ratelimit-limit'));
+  const remaining = parseQuotaInteger(quotaHeader(headers, 'x-ratelimit-remaining'));
+  const resetSeconds = parseQuotaInteger(quotaHeader(headers, 'x-ratelimit-reset'));
+  const route = quotaRoute(url, method);
+  if (limit === null || remaining === null || resetSeconds === null || remaining > limit || !route) return null;
+  const resetAtMs = resetSeconds * 1000;
+  if (!Number.isSafeInteger(resetAtMs) || !Number.isFinite(new Date(resetAtMs).getTime()) || resetAtMs <= now) return null;
+  return {
+    method,
+    route,
+    limit,
+    remaining,
+    resetAt: new Date(resetAtMs).toISOString(),
+    observedAt: new Date(now).toISOString()
+  };
 }
 
 function boundedRetryMessage(status, wait) {
@@ -459,6 +527,9 @@ function validateStoredVault(stored) {
           throw Error('Saved SoundCloud account vault has an invalid account record.');
         }
       }
+      if (item.scope !== undefined && sanitizeOAuthScope(item.scope, [item.clientId, item.clientSecret, item.accessToken, item.refreshToken]) === null) {
+        throw Error('Saved SoundCloud account vault has an invalid OAuth scope.');
+      }
       if (item.expires !== undefined && (!Number.isFinite(item.expires) || item.expires < 0)) {
         throw Error('Saved SoundCloud account vault has an invalid expiration time.');
       }
@@ -471,6 +542,7 @@ function validateStoredVault(stored) {
         clientSecret: item.clientSecret || '',
         accessToken: item.accessToken || '',
         refreshToken: item.refreshToken || '',
+        scope: sanitizeOAuthScope(item.scope || '', [item.clientId, item.clientSecret, item.accessToken, item.refreshToken]) || '',
         expires: Number(item.expires || 0),
         remoteUserUrn,
         snapshot: validateSavedSnapshot(item.snapshot)
@@ -480,13 +552,16 @@ function validateStoredVault(stored) {
     return { vault: { version: 2, activeAccountId: ids.has(activeAccountId) ? activeAccountId : (accounts[0]?.id || ''), accounts }, migrated: false };
   }
   if (stored.version !== undefined) throw Error(`Saved SoundCloud account vault version ${String(stored.version)} is not supported by this app version.`);
-  if (!['clientId', 'clientSecret', 'accessToken', 'refreshToken', 'expires', 'snapshot', 'label', 'id'].some(key => Object.hasOwn(stored, key))) {
+  if (!['clientId', 'clientSecret', 'accessToken', 'refreshToken', 'expires', 'snapshot', 'label', 'id', 'scope'].some(key => Object.hasOwn(stored, key))) {
     throw Error('The previous SoundCloud account record has an invalid format.');
   }
   for (const key of ['clientId', 'clientSecret', 'accessToken', 'refreshToken']) {
     if (stored[key] !== undefined && (typeof stored[key] !== 'string' || stored[key].length > 65536)) {
       throw Error('The previous SoundCloud account record has an invalid format.');
     }
+  }
+  if (stored.scope !== undefined && sanitizeOAuthScope(stored.scope, [stored.clientId, stored.clientSecret, stored.accessToken, stored.refreshToken]) === null) {
+    throw Error('The previous SoundCloud account record has an invalid OAuth scope.');
   }
   if (stored.expires !== undefined && (!Number.isFinite(stored.expires) || stored.expires < 0)) {
     throw Error('The previous SoundCloud account record has an invalid expiration time.');
@@ -501,6 +576,7 @@ function validateStoredVault(stored) {
     clientSecret: stored.clientSecret || '',
     accessToken: stored.accessToken || '',
     refreshToken: stored.refreshToken || '',
+    scope: sanitizeOAuthScope(stored.scope || '', [stored.clientId, stored.clientSecret, stored.accessToken, stored.refreshToken]) || '',
     expires: Number(stored.expires || 0),
     remoteUserUrn,
     snapshot
@@ -578,12 +654,46 @@ function createConnection(dir) {
     needsMigration = parsed.migrated;
   }
   if (!vault.accounts.length) {
-    const first = { id: crypto.randomUUID(), label: 'SoundCloud account', clientId: '', clientSecret: '', accessToken: '', refreshToken: '', expires: 0, snapshot: null };
+    const first = { id: crypto.randomUUID(), label: 'SoundCloud account', clientId: '', clientSecret: '', accessToken: '', refreshToken: '', scope: '', expires: 0, snapshot: null };
     vault = { version: 2, activeAccountId: first.id, accounts: [first] };
   }
   const refreshingByAccount = new Map();
   const apiRequestsByAccount = new Map();
   const apiCooldownByAccount = new Map();
+  const apiQuotaByAccount = new Map();
+
+  function captureApiQuota(record, headers, url, method) {
+    if (!record?.id) return;
+    const observed = observedQuotaSnapshot(headers, url, method);
+    if (!observed) return;
+    let snapshots = apiQuotaByAccount.get(record.id);
+    if (!snapshots) {
+      snapshots = new Map();
+      apiQuotaByAccount.set(record.id, snapshots);
+    }
+    const now = Date.now();
+    for (const [key, snapshot] of snapshots) {
+      if (Date.parse(snapshot.resetAt) <= now) snapshots.delete(key);
+    }
+    const key = `${observed.method} ${observed.route}`;
+    snapshots.delete(key);
+    snapshots.set(key, observed);
+    while (snapshots.size > apiQuotaSnapshotLimit) snapshots.delete(snapshots.keys().next().value);
+  }
+
+  function currentApiQuota(accountId) {
+    const snapshots = apiQuotaByAccount.get(accountId);
+    if (!snapshots) return [];
+    const now = Date.now();
+    for (const [key, snapshot] of snapshots) {
+      if (Date.parse(snapshot.resetAt) <= now) snapshots.delete(key);
+    }
+    if (!snapshots.size) {
+      apiQuotaByAccount.delete(accountId);
+      return [];
+    }
+    return [...snapshots.values()].map(snapshot => structuredClone(snapshot));
+  }
 
   function persistAccountCooldowns() {
     const temp = `${cooldownFile}.${crypto.randomUUID()}.tmp`;
@@ -669,6 +779,7 @@ function createConnection(dir) {
     if (!target) return;
     target.accessToken = '';
     target.refreshToken = '';
+    target.scope = '';
     target.expires = 0;
     target.snapshotInvalidatedAt = new Date().toISOString();
     persist(candidate);
@@ -784,6 +895,8 @@ function createConnection(dir) {
       label: record.label || username || 'SoundCloud account',
       username,
       remoteUserUrn: record.remoteUserUrn || '',
+      scope: record.scope || '',
+      quotaSnapshots: currentApiQuota(record.id),
       configured: !!record.clientId,
       connected: !!record.accessToken
     };
@@ -794,6 +907,8 @@ function createConnection(dir) {
     return {
       configured: !!record?.clientId,
       connected: !!record?.accessToken,
+      scope: record?.scope || '',
+      quotaSnapshots: currentApiQuota(record?.id),
       snapshot: record?.snapshot || null,
       snapshotFreshness: snapshotFreshness(record),
       syncCheckpoint: syncCheckpoint?.accountId === record?.id ? structuredClone(syncCheckpoint) : null,
@@ -825,7 +940,8 @@ function createConnection(dir) {
         accountCooldownMs,
         apiCircuitCooldownMs: circuitCooldownMs
       },
-      accountCount: vault.accounts.length
+      accountCount: vault.accounts.length,
+      quotaSnapshots: currentApiQuota(record?.id)
     };
   }
 
@@ -875,6 +991,10 @@ function createConnection(dir) {
     if (!candidateRecord) throw Error('The connected SoundCloud account is no longer available.');
     candidateRecord.accessToken = data.access_token;
     candidateRecord.refreshToken = data.refresh_token;
+    if (Object.hasOwn(data, 'scope')) {
+      const scope = sanitizeOAuthScope(data.scope, [candidateRecord.clientId, candidateRecord.clientSecret, data.access_token, data.refresh_token]);
+      if (scope !== null) candidateRecord.scope = scope;
+    }
     candidateRecord.expires = Date.now() + expiresIn * 1000;
     persist(candidate);
   }
@@ -928,6 +1048,7 @@ function createConnection(dir) {
         recordApiFailure(classified, record.id, persistAccountCooldowns);
         throw classified;
       }
+      captureApiQuota(record, response.headers, current, 'GET');
       if (response.status >= 500) {
         const wait = retryAfterMs(response);
         await response.body?.cancel();
@@ -1100,6 +1221,7 @@ function createConnection(dir) {
         if (target.origin === 'https://api.soundcloud.com') recordApiFailure(classified, record.id, persistAccountCooldowns);
         throw classified;
       } finally { timeout?.clear(); }
+      if (target.origin === 'https://api.soundcloud.com') captureApiQuota(record, response.headers, target, 'GET');
       if (target.origin === 'https://api.soundcloud.com' && response.status >= 500) {
         const failure = apiError('SoundCloud preview service is temporarily unavailable.', { code: 'SC_TEMPORARILY_UNAVAILABLE', statusCode: response.status, retryAfterMs: retryAfterMs(response) });
         recordApiFailure(failure, record.id, persistAccountCooldowns);
@@ -1161,6 +1283,7 @@ function createConnection(dir) {
     target.clientSecret = secret;
     target.accessToken = '';
     target.refreshToken = '';
+    target.scope = '';
     target.expires = 0;
     target.snapshot = null;
     target.remoteUserUrn = '';
@@ -1175,7 +1298,7 @@ function createConnection(dir) {
     if (vault.accounts.length >= 10) throw Error('You can save up to 10 SoundCloud accounts on this PC.');
     const name = typeof label === 'string' ? label.trim().slice(0, 80) : '';
     const candidate = structuredClone(vault);
-    const record = { id: crypto.randomUUID(), label: name || 'New SoundCloud account', clientId: source.clientId, clientSecret: source.clientSecret, accessToken: '', refreshToken: '', expires: 0, snapshot: null };
+    const record = { id: crypto.randomUUID(), label: name || 'New SoundCloud account', clientId: source.clientId, clientSecret: source.clientSecret, accessToken: '', refreshToken: '', scope: '', expires: 0, snapshot: null };
     candidate.accounts.push(record);
     candidate.activeAccountId = record.id;
     persist(candidate);
@@ -1203,6 +1326,7 @@ function createConnection(dir) {
     persist(candidate);
     apiCooldownByAccount.delete(removedId);
     apiCircuitByAccount.delete(removedId);
+    apiQuotaByAccount.delete(removedId);
     persistAccountCooldowns();
     return status();
   }
@@ -1293,7 +1417,8 @@ function createConnection(dir) {
       return require('./upload.cjs').sendUpload(file, metadata, {
         ...options,
         token: record.accessToken,
-        onRateLimit: wait => applyAccountCooldown(record, wait)
+        onRateLimit: wait => applyAccountCooldown(record, wait),
+        onQuotaHeaders: headers => captureApiQuota(record, headers, 'https://api.soundcloud.com/tracks', 'POST')
       });
     },
     disconnect() {
@@ -1304,6 +1429,7 @@ function createConnection(dir) {
         const target = candidate.accounts.find(item => item.id === record.id);
         target.accessToken = '';
         target.refreshToken = '';
+        target.scope = '';
         target.expires = 0;
         target.snapshot = null;
         persist(candidate);

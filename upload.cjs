@@ -140,7 +140,7 @@ function validateReceipt(data) {
   return data;
 }
 
-async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks`, onProgress = () => {}, onRateLimit = () => {}, signal, artwork, operationTimeoutMs = 15 * 60 * 1000 } = {}) {
+async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks`, onProgress = () => {}, onRateLimit = () => {}, onQuotaHeaders = () => {}, signal, artwork, operationTimeoutMs = 15 * 60 * 1000 } = {}) {
   if (typeof token !== 'string' || !token || token.length > 65536) throw Error('Connect your SoundCloud account before uploading.');
   if (!Number.isFinite(operationTimeoutMs) || operationTimeoutMs < 1000 || operationTimeoutMs > 60 * 60 * 1000) throw Error('Upload time limit is invalid.');
   let target;
@@ -210,6 +210,7 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
           'Content-Length': total
         }
       }, response => {
+        try { onQuotaHeaders(response.headers); } catch { /* Quota telemetry never changes the upload outcome. */ }
         const responseChunks = [];
         let responseBytes = 0;
         response.on('data', chunk => {
