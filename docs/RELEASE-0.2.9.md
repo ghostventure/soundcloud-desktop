@@ -1,6 +1,6 @@
 # Soundcloud Desktop 0.2.9 source update
 
-This document records the integrated source coverage for backend ranks 51-100 and the limits of those capabilities. The source metadata and visible Settings version are 0.2.9. This docs/version commit does not claim that a package, installer, or release has been built or published. The prior published release remains [v0.2.8 on GitHub](https://github.com/ghostventure/soundcloud-desktop/releases/tag/v0.2.8).
+This document records the integrated source coverage for backend ranks 51-100 and the limits of those capabilities. The source metadata and visible Settings version are 0.2.9. The Windows x64 setup and portable packages were built and published as the [v0.2.9 GitHub release](https://github.com/ghostventure/soundcloud-desktop/releases/tag/v0.2.9); its [SHA-256 manifest](https://github.com/ghostventure/soundcloud-desktop/releases/download/v0.2.9/SHA256SUMS-0.2.9.txt) lists both executable assets. The prior [v0.2.8 release](https://github.com/ghostventure/soundcloud-desktop/releases/tag/v0.2.8) remains available.
 
 ## Second-pass coverage
 
@@ -67,4 +67,4 @@ Workspace backups and automatic recovery points contain profile/workspace record
 
 ## Version and verification status
 
-This commit updates documentation, version metadata, and the visible Settings version to 0.2.9. It does not build, smoke-test, package, or publish the application. The next integrated build/release step must confirm the package and installer independently.
+The Windows x64 NSIS setup and portable packages were built locally and published with this source update. The setup installation completed successfully; Windows reported ProductVersion 0.2.9.0, and the installed executable's SHA-256 matched the packaged executable. The local workspace and encrypted SoundCloud account vault hashes remained unchanged. GitHub's reported asset sizes and SHA-256 digests matched the local setup, portable, and checksum files. Tests and smoke launches were skipped as requested; the app remains closed.
