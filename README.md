@@ -40,6 +40,7 @@ The app is an Electron desktop application targeting 64-bit Windows. See [native
 - Content-hash duplicate checks for newly imported local audio, checksummed workspace backups with legacy JSON restore support, and bounded local workspace recovery points.
 - Per-account identity binding and persisted cooldowns, upload-time audio signature/file identity checks, and Settings display of reported OAuth scopes plus observed per-route quota headers.
 - Local daily follower and track-count history captured during successful catalog syncs; this is not SoundCloud time-series analytics.
+- Timestamped follower, track, catalog-play and catalog-like snapshots from successful manual syncs, configurable threshold alerts, and a recent CSV digest with adjacent-snapshot observed deltas. These are snapshot comparisons, not real-time or scheduled analytics.
 - Settings health checks for workspace and credential access, plus an opt-in privacy-safe support bundle containing versions, projected health, and sanitized event categories.
 - Responsive 100-row library/catalog pages, asynchronous serialized workspace saves, and faster audio/media file lookups; see [performance notes](docs/PERFORMANCE-0.2.1.md).
 - SoundCloud catalog snapshots keep 2,000 description characters per track, normalize pages as they arrive, and remain sequentially paginated; internal workspace JSON is compact while exported backups stay readable.

@@ -1,0 +1,12 @@
+.scm-panel{margin-top:20px;padding:22px}
+.scm-head,.scm-track{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.scm-head h2,.scm-status h3{margin:0 0 6px}
+.scm-head p,.scm-panel .hint,.scm-track small{color:var(--muted)}
+.scm-fields{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:14px;margin:18px 0}
+.scm-field{display:grid;gap:7px;font-size:13px;color:var(--muted)}
+.scm-field input{min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);color:var(--text)}
+.scm-status{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.scm-track{padding:10px 0;border-bottom:1px solid var(--line)}
+.scm-track span{display:grid;gap:4px}
+.scm-track small{font-size:12px}
+@media(max-width:900px){.scm-fields{grid-template-columns:repeat(2,minmax(130px,1fr))}.scm-head{align-items:flex-start;flex-direction:column}}

@@ -46,13 +46,15 @@ After a successful connection and catalog sync:
 - The **SoundCloud** page shows the synced catalog in pages of up to 100 tracks, along with follower and catalog totals.
 - Open **Artist Insights** for SoundCloud's detailed time-based analytics.
 
-The preview and catalog are snapshots from the last sync, not a live feed. Catalog play and like totals are summed from the tracks returned by that sync. The account profile also keeps a local daily history of follower and track counts when a complete sync succeeds, for up to 366 days. It does not provide time-series play or like analytics. Confirm that you connected the intended SoundCloud account if the figures or track list do not look right.
+The preview and catalog are snapshots from the last sync, not a live feed. Catalog play and like totals are summed from the tracks returned by that sync. The account profile keeps a local daily history of follower and track counts for up to 366 days. A separate recent performance history records the API values observed at successful manual syncs (up to 100 snapshots), including catalog plays and likes. These snapshots do not provide time-series or real-time SoundCloud analytics. Confirm that you connected the intended SoundCloud account if the figures or track list do not look right.
 
 ### Catalog controls and sync history
 
 On **Overview**, use **Customize Overview cards** to hide or reorder the summary cards. On **SoundCloud**, the catalog tools support sortable columns, optional columns, metadata search, grouping, saved filters, removable filter chips, and multi-selection. These choices are saved on this PC. The sync comparison and catalog change history compare saved snapshots; they do not provide a live feed or a complete SoundCloud activity log.
 
 Catalog sync follows SoundCloud's sequential `next_href` pagination, with up to 200 tracks per page, 50 pages, and 10,000 tracks total. Each API response is limited to 16 MiB. A full sync has a five-minute deadline; an individual API call times out after 30 seconds. If the catalog exceeds the cap or a sync is interrupted, the last completed snapshot is preserved. Settings can show the sanitized checkpoint status, but this build cannot resume from a cursor or reliably detect page gaps in a changing remote catalog. Local absence tombstones become confirmed only after a track is absent from two complete successful syncs; this is not proof that SoundCloud deleted the track.
+
+On the **SoundCloud** page, set follower, track, catalog-play, and catalog-like milestone thresholds. Milestones are checked after a manual sync and only reported when the observed value crosses the configured threshold. Select **Export recent digest (CSV)** to save timestamped API snapshots and observed differences between adjacent syncs. Snapshot timestamps and the account’s sync cadence determine freshness; differences are not real-time analytics or a claimed daily/weekly growth rate. SoundCloud's published Track schema does not expose a processing-state field, so the app does not report or refresh remote processing status.
 
 ### Track toolkit
 

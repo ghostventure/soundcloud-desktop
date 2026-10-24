@@ -109,6 +109,7 @@ const ipcContracts={
  'account:sync':{args:[],limit:4,window:60000},
  'account:activity-feed':{args:[],limit:4,window:60000},
  'account:comments':{args:[stringArg('SoundCloud track ID',160,{min:1,pattern:/^(?:soundcloud:tracks:\d{1,128}|[A-Za-z0-9_-]{1,128})$/})],limit:12,window:60000},
+ 'account:export-performance-digest':{args:[],limit:4,window:60000},
  'account:disconnect':{args:[],limit:10,window:60000},
  'account:add':{args:[stringArg('account label',80)],limit:10,window:60000},
  'account:switchTo':{args:[idArg('account ID')],limit:30,window:10000},
@@ -558,6 +559,25 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   try{account=require('./connection.cjs').createConnection(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('connection-startup',message);dialog.showErrorBox('SoundCloud connection',message);}
   handler('account:status',()=>account?account.status():{configured:false,connected:false});
   handler('account:activity-feed',()=>account?account.activityFeed():Promise.reject(Error('Connect your SoundCloud account first.')));
+  handler('account:export-performance-digest',async()=>{
+   if(!account)throw Error('SoundCloud account storage is unavailable.');
+   const snapshot=account.status().snapshot;
+   const history=Array.isArray(snapshot?.performanceHistory)?snapshot.performanceHistory:[];
+   if(!history.length)throw Error('Sync your SoundCloud catalog at least once before exporting a performance digest.');
+   const result=await dialog.showSaveDialog(win,{title:'Export recent SoundCloud performance digest',defaultPath:`SoundCloud-Performance-Digest-${new Date().toISOString().slice(0,10)}.csv`,filters:[{name:'CSV digest',extensions:['csv']}]});
+   if(result.canceled||!result.filePath)return {saved:false};
+   const fields=['capturedAt','source','deltaMeaning','followersCount','followersDelta','trackCount','trackDelta','catalogPlayCount','catalogPlayDelta','catalogLikeCount','catalogLikeDelta'];
+   const quote=value=>`"${String(value??'').replace(/"/g,'""')}"`;
+   const rows=[fields.join(',')];
+   for(let index=0;index<history.length;index++){
+    const row=history[index],prior=history[index-1];
+    rows.push([row.capturedAt,'SoundCloud API snapshot','Difference from immediately prior saved sync; not time-based analytics',row.followersCount,prior?row.followersCount-prior.followersCount:'',row.trackCount,prior?row.trackCount-prior.trackCount:'',row.catalogPlayCount,prior?row.catalogPlayCount-prior.catalogPlayCount:'',row.catalogLikeCount,prior?row.catalogLikeCount-prior.catalogLikeCount:''].map(quote).join(','));
+   }
+   const csv=`${rows.join('\r\n')}\r\n`;
+   if(Buffer.byteLength(csv,'utf8')>256*1024)throw Error('Performance digest exceeded its safe export size.');
+   await fs.promises.writeFile(result.filePath,csv,'utf8');
+   return {saved:true,count:history.length};
+  });
   handler('backend:health',()=>collectBackendHealth());
   handler('update:check',()=>checkGitHubUpdate());
   handler('update:download',version=>downloadGitHubUpdate(version));

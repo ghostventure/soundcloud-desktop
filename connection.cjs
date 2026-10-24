@@ -509,7 +509,20 @@ function validateSavedSnapshot(snapshot) {
     if (history) saved.metricHistory = history;
     else delete saved.metricHistory;
   }
+  if (saved.performanceHistory !== undefined) {
+    const history = validatePerformanceHistory(saved.performanceHistory);
+    if (history) saved.performanceHistory = history;
+    else delete saved.performanceHistory;
+  }
   return saved;
+}
+
+function validatePerformanceHistory(history) {
+  if (!Array.isArray(history) || history.length > 100) return null;
+  const valid = history.every(item => isPlainObject(item) && typeof item.capturedAt === 'string' && item.capturedAt.length <= 40 &&
+    Number.isFinite(Date.parse(item.capturedAt)) && new Date(Date.parse(item.capturedAt)).toISOString() === item.capturedAt &&
+    ['followersCount', 'trackCount', 'catalogPlayCount', 'catalogLikeCount'].every(key => Number.isSafeInteger(item[key]) && item[key] >= 0));
+  return valid ? structuredClone(history) : null;
 }
 
 function validateCatalogMetricHistory(history) {
@@ -1171,12 +1184,22 @@ function createConnection(dir) {
         if (!latestMetric || latestMetric.capturedAt.slice(0, 10) !== syncedAt.slice(0, 10)) metricHistory.push(currentMetric);
         else if (latestMetric.followersCount !== currentMetric.followersCount || latestMetric.trackCount !== currentMetric.trackCount) metricHistory[metricHistory.length - 1] = currentMetric;
       }
+      const priorPerformance = validatePerformanceHistory(record.snapshot?.performanceHistory) || [];
+      const sumMetric = (key, fallback) => tracks.reduce((sum, track) => Math.min(Number.MAX_SAFE_INTEGER, sum + (Number.isSafeInteger(track[key]) ? track[key] : fallback(track))), 0);
+      const performanceSnapshot = hasMetricCounts ? {
+        capturedAt: syncedAt,
+        followersCount: profileResponse.followers_count,
+        trackCount: profileResponse.track_count,
+        catalogPlayCount: sumMetric('playback_count', () => 0),
+        catalogLikeCount: tracks.reduce((sum, track) => Math.min(Number.MAX_SAFE_INTEGER, sum + (track.likes_count || track.favoritings_count || 0)), 0)
+      } : null;
       candidateRecord.snapshot = {
         modelVersion: 1,
         fieldPolicy: structuredClone(catalogFieldPolicy),
         profile,
         tracks,
         metricHistory: metricHistory.slice(-catalogMetricHistoryLimit),
+        performanceHistory: (performanceSnapshot ? [...priorPerformance, performanceSnapshot] : priorPerformance).slice(-100),
         tombstones: reconcileTombstones(record.snapshot, tracks, syncedAt),
         syncWindow: {
           startedAt: syncStartedAt,
