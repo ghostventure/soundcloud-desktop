@@ -42,25 +42,44 @@ Function SCManagerConsentPage
     Abort
   ${EndIf}
 
-  ${NSD_CreateLabel} 0 0 100% 30u "Before installing, please read and confirm these important details."
+  ${NSD_CreateLabel} 0 0 100% 14u "Read these details, check the box to confirm, then select Install."
   Pop $0
-  nsDialogs::CreateControl "EDIT" "${WS_CHILD}|${WS_VISIBLE}|${WS_VSCROLL}|${ES_MULTILINE}|${ES_READONLY}|${ES_AUTOVSCROLL}" "${WS_EX_CLIENTEDGE}" 0 34u 100% 202u ""
+  ; Keep the confirmation control near the top of the page so it stays clear
+  ; of the wizard footer at high DPI and smaller display resolutions.
+  ${NSD_CreateCheckbox} 0 18u 100% 32u "I have read and understand these notices, agree to continue, and may use content I upload."
+  Pop $SCMConsentCheck
+  ${NSD_OnClick} $SCMConsentCheck SCManagerConsentToggle
+
+  nsDialogs::CreateControl "EDIT" "${WS_CHILD}|${WS_VISIBLE}|${WS_VSCROLL}|${ES_MULTILINE}|${ES_READONLY}|${ES_AUTOVSCROLL}" "${WS_EX_CLIENTEDGE}" 0 53u 100% 42u ""
   Pop $SCMConsentText
   StrCpy $0 "INDEPENDENT APP$\r$\nBlack Lion Studios supports SoundCloud. SC-DS is an independent product, currently not affiliated with or endorsed by SoundCloud; status may change.$\r$\n$\r$\nDMCA / COPYRIGHT$\r$\nUpload only content you own or may use. You are responsible for copyright/DMCA notices. No legal advice or protection.$\r$\n$\r$\n"
   StrCpy $0 "$0SOUNDCLOUD SERVICES$\r$\nAPI features: feed, comments, followed-artist tracks, catalog sync, uploads, metrics. Team inbox and processing status unavailable. SoundCloud terms apply. Sign-in opens browser; GitHub checks/downloads updates when requested.$\r$\n$\r$\n"
   StrCpy $0 "$0PRIVACY / COMPONENTS$\r$\nWorkspace and account snapshots stay local. Credentials use Electron safeStorage/Windows DPAPI; consent stays local. Optional support bundle: app version, health, sanitized events; excludes content, credentials, account IDs, paths, raw errors. Full privacy/license notice bundled and in Settings.$\r$\nElectron/Chromium/Node.js included. Windows provides networking/file dialogs; no .NET, WebView2, or Visual C++ runtime needed."
   ${NSD_SetText} $SCMConsentText $0
 
-  ${NSD_CreateButton} 0 242u 174u 20u "SoundCloud terms"
+  ${NSD_CreateButton} 0 97u 174u 13u "SoundCloud terms"
   Pop $0
   ${NSD_OnClick} $0 SCManagerOpenTerms
-  ${NSD_CreateButton} 180u 242u 174u 20u "API terms"
+  ${NSD_CreateButton} 180u 97u 174u 13u "API terms"
   Pop $0
   ${NSD_OnClick} $0 SCManagerOpenApiTerms
 
-  ${NSD_CreateCheckbox} 0 270u 100% 28u "I have read this information, understand it, and agree to continue. I confirm I have rights or permission for content I upload."
-  Pop $SCMConsentCheck
+  ; Make the final action explicit. This is the last review page before the
+  ; installer copies files, so the standard wizard Next button must say what it does.
+  GetDlgItem $0 $HWNDPARENT 1
+  SendMessage $0 0x000C 0 "STR:Install"
+  EnableWindow $0 0
   nsDialogs::Show
+FunctionEnd
+
+Function SCManagerConsentToggle
+  ${NSD_GetState} $SCMConsentCheck $SCMConsentState
+  GetDlgItem $0 $HWNDPARENT 1
+  ${If} $SCMConsentState == ${BST_CHECKED}
+    EnableWindow $0 1
+  ${Else}
+    EnableWindow $0 0
+  ${EndIf}
 FunctionEnd
 
 Function SCManagerConsentLeave

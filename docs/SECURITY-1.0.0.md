@@ -20,9 +20,9 @@ SC-DS uses several separate protections. They reduce exposure and detect common 
 
 ## Updates and release signing
 
-Updates are fetched directly from the fixed GitHub repository. Before SC-DS opens an installer, it checks the release's SHA-256 metadata and validates a Windows Authenticode signature whose publisher is Black Lion Studios. It repeats both checks immediately before launch. A checksum by itself is not publisher authentication.
+Updates are fetched directly from the fixed GitHub repository. Before SC-DS opens an installer, it checks the release's SHA-256 metadata. If a Windows Authenticode signature is present, it must be valid and identify Black Lion Studios. The checks are repeated immediately before launch. An unsigned update relies on the fixed repository's GitHub release metadata and HTTPS transport; the checksum confirms the bytes match the release metadata but does not independently authenticate the publisher.
 
-Windows release builds fail unless electron-builder can use a Black Lion Studios code-signing certificate. Supply the certificate through the protected Windows certificate store or electron-builder's secure signing environment. Never commit a certificate, password, or private key. The previous unsigned 1.0.0 artifact does not pass the new updater signature requirement and must not be distributed as the hardened build.
+Windows release builds do not require code signing. Signing is optional; if used, the updater requires a valid Black Lion Studios publisher signature. Never commit a certificate, password, or private key. Unsigned installers may trigger a Windows unknown-publisher warning when opened directly.
 
 ## User controls
 

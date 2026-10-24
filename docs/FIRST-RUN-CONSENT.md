@@ -1,6 +1,8 @@
 # SC-DS Installation Manager: first-run consent
 
-Before setup copies program files, SC-DS Installation Manager presents the privacy, data, service, copyright, and component summary on its confirmation page. It links to SoundCloud's official [Terms of Use](https://soundcloud.com/terms-of-use) and [API Terms](https://developers.soundcloud.com/docs/api/terms-of-use). The full privacy and third-party notice is included with the installed app and can be opened later from Settings. The user can check the confirmation, continue, or cancel setup. If the user cancels, setup does not copy or install the application files.
+Before setup copies program files, SC-DS Installation Manager presents the privacy, data, service, copyright, and component summary on its confirmation page. It links to SoundCloud's official [Terms of Use](https://soundcloud.com/terms-of-use) and [API Terms](https://developers.soundcloud.com/docs/api/terms-of-use). The full privacy and third-party notice is included with the installed app and can be opened later from Settings. The **Install** button stays disabled until the user checks the confirmation box. The user can then install or cancel setup. If the user cancels, setup does not copy or install the application files.
+
+The acknowledgment checkbox is positioned near the top of the page with a full-width click area, clear of the wizard footer. This keeps it reachable with a mouse on smaller displays and at higher display scaling. The final action is labeled **Install** so its effect is clear.
 
 The confirmation uses one required checkbox and explains:
 
@@ -13,7 +15,7 @@ The confirmation uses one required checkbox and explains:
 
 ## Local consent record
 
-After the user checks the box and chooses Next, setup stores the accepted consent version, local acceptance time, and category IDs in this Windows account:
+After the user checks the box and chooses **Install**, setup stores the accepted consent version, local acceptance time, and category IDs in this Windows account before installation proceeds:
 
 `HKEY_CURRENT_USER\Software\SC-DS\InstallationManager\Consent`
 

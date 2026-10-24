@@ -283,25 +283,26 @@ async function hashStagedInstaller(file,expectedSize){
  try{for await(const chunk of fs.createReadStream(file)){total+=chunk.length;if(total>updateMaxBytes)return null;hash.update(chunk);}}catch{return null;}
  return total===expectedSize?hash.digest('hex'):null;
 }
-function verifyInstallerPublisherSignature(file){
- if(process.platform!=='win32')return Promise.reject(Error('Windows publisher-signature verification is required before opening updates.'));
+function verifyOptionalInstallerSignature(file){
+ if(process.platform!=='win32')return Promise.reject(Error('Windows installer verification is required before opening updates.'));
  const powershell=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
  const command="$ErrorActionPreference='Stop'; $s=Get-AuthenticodeSignature -LiteralPath $env:SC_DS_AUTHENTICODE_FILE; $subject=''; if($s.SignerCertificate){$subject=$s.SignerCertificate.Subject}; $result=[pscustomobject]@{status=[string]$s.Status;subject=[string]$subject}; [Console]::Out.Write((ConvertTo-Json -InputObject $result -Compress))";
  return new Promise((resolve,reject)=>{
   let child,output='',settled=false;
   const finish=(error)=>{if(settled)return;settled=true;clearTimeout(timer);if(error)reject(error);else resolve();};
-  const timer=setTimeout(()=>{child?.kill();finish(Error('Windows publisher-signature verification timed out.'))},20000);
-  try{child=spawn(powershell,['-NoLogo','-NoProfile','-NonInteractive','-Command',command],{shell:false,windowsHide:true,stdio:['ignore','pipe','ignore'],env:{...process.env,SC_DS_AUTHENTICODE_FILE:file}});}catch{finish(Error('Windows publisher-signature verification is unavailable.'));return;}
-  child.stdout.setEncoding('utf8');child.stdout.on('data',chunk=>{output+=chunk;if(output.length>8192){child.kill();finish(Error('Windows returned an invalid publisher-signature result.'));}});
-  child.once('error',()=>finish(Error('Windows publisher-signature verification is unavailable.')));
+  const timer=setTimeout(()=>{child?.kill();finish(Error('Windows installer verification timed out.'))},20000);
+  try{child=spawn(powershell,['-NoLogo','-NoProfile','-NonInteractive','-Command',command],{shell:false,windowsHide:true,stdio:['ignore','pipe','ignore'],env:{...process.env,SC_DS_AUTHENTICODE_FILE:file}});}catch{finish(Error('Windows installer verification is unavailable.'));return;}
+  child.stdout.setEncoding('utf8');child.stdout.on('data',chunk=>{output+=chunk;if(output.length>8192){child.kill();finish(Error('Windows returned an invalid installer-signature result.'));}});
+  child.once('error',()=>finish(Error('Windows installer verification is unavailable.')));
   child.once('close',code=>{
-   if(code!==0){finish(Error('Windows could not verify the update publisher.'));return;}
+   if(code!==0){finish(Error('Windows could not verify the installer.'));return;}
    try{
     const result=JSON.parse(output);
+    if(result.status==='NotSigned'){finish();return;}
     const trustedName=typeof result.subject==='string'&&/(?:^|,\s*)(?:CN|O)=Black Lion Studios(?:\s*,|$)/i.test(result.subject);
     if(result.status!=='Valid'||!trustedName)throw Error();
     finish();
-   }catch{finish(Error('The update is not signed by a trusted Black Lion Studios publisher.'));}
+   }catch{finish(Error('The installer has an invalid signature or an untrusted publisher.'));}
   });
  });
 }
@@ -335,7 +336,7 @@ async function downloadGitHubUpdate(version){
   if(controller.signal.aborted)throw Error('Update download canceled.');
   const directory=await resolveStagingDirectory(),target=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
   const existingHash=await hashStagedInstaller(target,installer.size);
-  if(existingHash===installer.digest){await verifyInstallerPublisherSignature(target);return {downloaded:true,version,size:installer.size,digest:installer.digest,reused:true};}
+  if(existingHash===installer.digest){await verifyOptionalInstallerSignature(target);return {downloaded:true,version,size:installer.size,digest:installer.digest,reused:true};}
   try{await fs.promises.unlink(target);}catch(error){if(error.code!=='ENOENT')throw Error('The previous staged installer could not be replaced.');}
   const response=await fetchReleaseAsset(installer.downloadUrl,controller.signal);
   const lengthHeader=response.headers.get('content-length'),declared=lengthHeader===null?NaN:Number(lengthHeader);
@@ -355,7 +356,7 @@ async function downloadGitHubUpdate(version){
   sendUpdateProgress({version,phase:'verifying',received,total:installer.size});
   const actualDigest=hash.digest('hex');if(actualDigest!==installer.digest)throw Error('The installer SHA-256 did not match GitHub release metadata.');
   await handle.sync();await handle.close();handle=null;
-  await verifyInstallerPublisherSignature(temp);
+  await verifyOptionalInstallerSignature(temp);
   await fs.promises.rename(temp,target);temp='';
   sendUpdateProgress({version,phase:'complete',received,total:installer.size});
   return {downloaded:true,version,size:installer.size,digest:installer.digest};
@@ -379,11 +380,11 @@ async function installGitHubUpdate(version){
  if(!installer||!offer.available||offer.latestVersion!==version)throw Error('No newer verified installed-build update is available. Check GitHub again.');
  const directory=await resolveStagingDirectory(),file=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
  if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer is missing or failed its SHA-256 check. Download and verify it again.');
- await verifyInstallerPublisherSignature(file);
+ await verifyOptionalInstallerSignature(file);
  const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Open installer'],defaultId:0,cancelId:0,message:`Open the verified SC-DS ${version} installer?`,detail:'The setup program will open for you to review and run. No update is installed silently; close the setup window to cancel.'});
  if(answer.response!==1)return {started:false,canceled:true};
  if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer changed after review. Download and verify it again.');
- await verifyInstallerPublisherSignature(file);
+ await verifyOptionalInstallerSignature(file);
  await new Promise((resolve,reject)=>{
   let child;try{child=spawn(file,[],{shell:false,detached:true,stdio:'ignore',windowsHide:false});}catch{reject(Error('Windows could not start the verified installer.'));return;}
   child.once('error',()=>reject(Error('Windows could not start the verified installer.')));

@@ -159,9 +159,9 @@ In **System health & support**, select **Refresh system health** to check storag
 
 ## Check for updates
 
-In Settings, choose **Check GitHub for updates** when you want to check the latest stable release. SC-DS checks the fixed [Black Lion Studios GitHub repository](https://github.com/ghostventure/soundcloud-desktop), downloads the matching Windows setup only when you request it, and verifies both the GitHub release SHA-256 and a valid Black Lion Studios Authenticode signature. It repeats those checks before opening setup. You must confirm before setup opens; updates are not silently installed and are not checked in the background.
+In Settings, choose **Check GitHub for updates** when you want to check the latest stable release. SC-DS checks the fixed [Black Lion Studios GitHub repository](https://github.com/ghostventure/soundcloud-desktop), downloads the matching Windows setup only when you request it, and verifies its SHA-256 against the GitHub release metadata. If the installer is signed, SC-DS also checks that the signature is valid and identifies Black Lion Studios. It repeats verification before opening setup. You must confirm before setup opens; updates are not silently installed and are not checked in the background.
 
-The 1.0.0 Windows release uses **SC-DS Installation Manager**. Setup opens visibly so you can review it. Installation or upgrade requires the current consent record. A valid signed installer is required for the updater to proceed.
+The 1.0.0 Windows release uses **SC-DS Installation Manager**. Setup opens visibly so you can review it. Installation or upgrade requires the current consent record. Unsigned installers may show a Windows unknown-publisher warning when opened directly.
 
 ## Keyboard and accessibility
 
@@ -187,7 +187,7 @@ Use the **Aa** display preferences control for higher contrast, compact spacing,
 | SoundCloud preview is unavailable | Sync the catalog. SoundCloud must mark the track streamable for this account and track. Otherwise use **Open track** on SoundCloud. |
 | A local audio file will not play | Check that the original file still exists and that its codec is supported. Use **Reveal in Explorer** to locate it. |
 | An upload result is uncertain | Do not immediately retry. Review the attempt in Upload desk and check the SoundCloud catalog first. |
-| Update download or launch is blocked | The release must match its GitHub checksum and have a valid Black Lion Studios signature. If either check fails, do not run a copied installer; try again from Settings later. |
+| Update download or launch is blocked | The release must match its GitHub checksum. Any signature present must be valid and identify Black Lion Studios. If verification fails, do not run a copied installer; try again from Settings later. |
 | Health reports workspace encryption needs attention | Refresh health. Preserve your data and contact the publisher with a reviewed support bundle if the condition remains. Do not delete workspace or recovery files to clear the message. |
 
 ## Product identity and related documentation

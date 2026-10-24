@@ -16,7 +16,7 @@ The app's first-run splash now explains account setup and local profile retentio
 
 SC-DS protects the workspace, recovery history, account vault, sync checkpoints, and upload receipts at rest with Windows DPAPI through Electron `safeStorage`. Valid legacy workspace and receipt files migrate in place. Settings reports whether workspace and recovery encryption is active. User-exported workspace backups remain readable JSON and receive an explicit privacy warning before save.
 
-The updater reads releases directly from the fixed GitHub repository. It verifies the downloaded installer against the release SHA-256 and requires a valid Authenticode signature for Black Lion Studios before opening the installer; it repeats both checks at handoff. Release builds now fail unless a Black Lion Studios code-signing certificate is available. A signed v1.0.0 installer must be built before distribution; the previously generated unsigned package does not satisfy this requirement. Uninstall preserves workspace and credential files in the Windows user's app-data folder.
+The updater reads releases directly from the fixed GitHub repository and verifies the downloaded installer against the release SHA-256 before opening it; it repeats verification at handoff. Signing is optional. If an installer is signed, the signature must be valid and identify Black Lion Studios. Unsigned installers can produce an unknown-publisher warning when opened directly. Uninstall preserves workspace and credential files in the Windows user's app-data folder.
 
 The 1.0.0 release includes the SC-DS Installation Manager setup only. Portable packages are omitted so first use cannot bypass the installer's compatibility check and required consent step.
 

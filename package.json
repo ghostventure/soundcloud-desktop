@@ -42,8 +42,7 @@
     },
     "win": {
       "icon": "assets/icon.ico",
-      "forceCodeSigning": true,
-      "certificateSubjectName": "Black Lion Studios",
+      "forceCodeSigning": false,
       "target": [
         "nsis"
       ]
