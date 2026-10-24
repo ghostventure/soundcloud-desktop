@@ -21,6 +21,7 @@ The app is an Electron desktop application targeting 64-bit Windows. See [native
 ## Included
 
 - Direct audio uploads with title, artist, genre, description, artwork, private/public visibility, streamed transfer progress, cancellation and saved upload receipts.
+- Native desktop alerts for upload and catalog-sync results when the app window is hidden; alerts use generic text and clicking one reopens the workspace.
 - Local audio import, drag and drop, playback, seeking, volume, media-session controls, track metadata and Explorer reveal.
 - Release planning, artwork, linked tracks, checklists and copyable release briefs.
 - Promotion campaigns with contacts, dates, captions, links and clipboard export.

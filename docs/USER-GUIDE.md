@@ -91,6 +91,8 @@ The **Upload desk** adds a library organizer for sorting and bulk metadata updat
 
 The upload screen reports transfer progress and can cancel an in-progress transfer. After SoundCloud accepts the upload, processing may continue on SoundCloud. If a file was uploaded before, the app warns that another upload creates a separate SoundCloud track; review the existing catalog before retrying.
 
+When the app window is hidden, the desktop can show a system alert when an upload is accepted, an upload needs review, or a catalog sync succeeds or fails. Alerts use general wording and do not show track titles or account details. Select an alert to reopen the workspace. Windows notification settings control whether system alerts are shown; in-app notices continue to appear while the window is open.
+
 The app saves local upload attempts and receipts. If the app closes mid-transfer or the response is ambiguous, **Upload desk** keeps the attempt for review and blocks another attempt for the same local track and account. Check your SoundCloud catalog before selecting **I checked SoundCloud** to clear an unknown result. If SoundCloud already has the track, do not retry. This is a local duplicate safeguard only; the API does not guarantee remote idempotency, and clearing the review item does not cancel or remove a SoundCloud upload. Confirmed receipts should be saved into the workspace before clearing their review item. Uploads are streamed from files up to 4 GiB; a transfer is not automatically retried after an ambiguous outcome.
 
 ## Plan releases

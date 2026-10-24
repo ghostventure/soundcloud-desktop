@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,protocol,net,Tray,Menu,nativeTheme}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,protocol,net,Tray,Menu,nativeTheme,Notification}=require('electron');
 const fs=require('node:fs'); const path=require('node:path'); const {pathToFileURL,fileURLToPath}=require('node:url');
 const {isDeepStrictEqual}=require('node:util');
 const os=require('node:os');
@@ -23,6 +23,17 @@ const audioExtensions=new Set(['.mp3','.wav','.flac','.ogg','.m4a','.aac','.aiff
 const contentHashPattern=/^[a-f0-9]{64}$/i;
 const workspaceBackupFormat='soundcloud-desktop-workspace-backup';
 function theme(value){ if(nativeTheme.themeSource!==value)nativeTheme.themeSource=value; const dark=nativeTheme.shouldUseDarkColors; win?.setTitleBarOverlay({color:dark?'#191a1d':'#f2f3f5',symbolColor:dark?'#f5f5f5':'#222222',height:44}); }
+function notifyHidden(kind){
+ if((win&&!win.isDestroyed()&&win.isVisible())||!Notification.isSupported())return;
+ const messages={
+  'upload-complete':['Upload accepted','SoundCloud received your track. Processing may continue online.'],
+  'upload-review':['Upload needs review','Open Upload desk to review its status before retrying.'],
+  'sync-complete':['Catalog sync complete','Your saved SoundCloud catalog snapshot has been updated.'],
+  'sync-failed':['Catalog sync did not finish','Your previous saved catalog snapshot is still available.']
+ };
+ const message=messages[kind];if(!message)return;
+ try{const notification=new Notification({title:message[0],body:message[1]});notification.on('click',()=>{if(!win||win.isDestroyed())createWindow();else{win.show();win.focus();}});notification.show();}catch{}
+}
 function createWindow(){
  win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'Soundcloud Desktop — Artist workspace',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:!app.isPackaged}});
  win.removeMenu(); win.loadFile(path.join(__dirname,'ui/index.html')); win.once('ready-to-show',()=>{theme(store.read().profile.theme);win.show();});
@@ -573,10 +584,11 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    const contents=JSON.stringify(bundle,null,2);if(Buffer.byteLength(contents,'utf8')>128*1024)throw Error('Support bundle exceeded its size limit.');
    await fs.promises.writeFile(result.filePath,contents,'utf8');recordDiagnostic('diagnostics:export','support bundle exported');return {saved:true};
   });
-  for(const action of ['credentials','authorize','sync','disconnect','add','switchTo','remove'])handler('account:'+action,(...args)=>{
+  for(const action of ['credentials','authorize','sync','disconnect','add','switchTo','remove'])handler('account:'+action,async(...args)=>{
    if(!account)throw Error('Account storage is unavailable.');
    if(uploadController&&['add','switchTo','remove'].includes(action))throw Error('Finish the current upload before changing SoundCloud accounts.');
-   return account[action](...args);
+   try{const result=await account[action](...args);if(action==='sync')notifyHidden('sync-complete');return result;}
+   catch(error){if(action==='sync')notifyHidden('sync-failed');throw error;}
   });
   handler('audio:cancel-upload',()=>{uploadController?.abort();});
   handler('audio:upload-jobs',()=>uploadJournal?.list()||[]);
@@ -594,6 +606,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    try{
     const remote=await account.upload(track.file,fields,{artwork,signal:uploadController.signal,onProgress:percent=>{try{uploadJournal.progress(jobId,percent);}catch(error){journalWarning=journalWarning||redactDiagnosticText(error?.message||error).slice(0,180);}if(last!==percent){last=percent;win?.webContents.send('upload:progress',{id,percent,title:fields.title});}}});
     serverAccepted=true;
+    notifyHidden('upload-complete');
     journalWarning=journalWarning||uploadJournal.accepted(jobId,remote)||'';
     const remoteId=String(remote.urn||remote.id||'').slice(0,128),acceptedTrack={id:remoteId,title:remote.title||fields.title,sharing:remote.sharing||fields.sharing,state:remote.state||'processing',url:safeSoundCloudUrl(remote.permalink_url)};
     let saved=null,localSaveError='';
@@ -605,6 +618,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
     }catch(error){localSaveError=redactDiagnosticText(error?.message||error).slice(0,240);const journalError=uploadJournal.localSaveFailed(jobId,error);if(journalError)localSaveError=`${localSaveError}; upload receipt history also could not be saved.`.slice(0,240);}
     return {state:saved,track:acceptedTrack,jobId,localSaveError,journalWarning};
    }catch(error){
+    if(!serverAccepted)notifyHidden('upload-review');
     if(!serverAccepted){try{if(error.code==='SC_UPLOAD_UNCERTAIN')uploadJournal.uncertain(jobId);else uploadJournal.failed(jobId);}catch{}}
     throw error;
    }finally{uploadController=null;}
