@@ -3,16 +3,18 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const blank = () => ({version:1, profile:{name:'Your studio', theme:'dark', genre:'', location:'', tagline:'', bio:'', soundcloudUrl:'', website:'', firstRunComplete:false}, tracks:[], releases:[], campaigns:[]});
 function validate(s) {
-  if (!s || s.version !== 1 || !s.profile || !['tracks','releases','campaigns'].every(k => Array.isArray(s[k]))) throw Error('This is not a Soundcloud Desktop workspace backup.');
-  if (typeof s.profile.name !== 'string' || !['dark','light','system'].includes(s.profile.theme)) throw Error('Invalid workspace settings.');
+  if (!s || typeof s !== 'object' || Array.isArray(s) || s.version !== 1 || !s.profile || typeof s.profile !== 'object' || Array.isArray(s.profile) || !['tracks','releases','campaigns'].every(k => Array.isArray(s[k]))) throw Error('This is not a Soundcloud Desktop workspace backup.');
+  if (typeof s.profile.name !== 'string' || s.profile.name.length > 256 || !['dark','light','system'].includes(s.profile.theme)) throw Error('Invalid workspace settings.');
+  for (const key of ['genre','location','tagline','bio','soundcloudUrl','website']) if (s.profile[key] !== undefined && (typeof s.profile[key] !== 'string' || s.profile[key].length > 10000)) throw Error('Invalid workspace settings.');
+  if (s.profile.firstRunComplete !== undefined && typeof s.profile.firstRunComplete !== 'boolean') throw Error('Invalid workspace settings.');
   for (const k of ['tracks','releases','campaigns']) {
     if (s[k].length > 10000) throw Error('Workspace is too large.');
     const ids = new Set();
-    for (const row of s[k]) { if (!row || typeof row.id !== 'string' || ids.has(row.id) || typeof row.title !== 'string') throw Error('Invalid workspace record.'); ids.add(row.id); }
+    for (const row of s[k]) { if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.id !== 'string' || !row.id || row.id.length > 256 || ids.has(row.id) || typeof row.title !== 'string' || row.title.length > 1000) throw Error('Invalid workspace record.'); ids.add(row.id); }
   }
-  for (const r of s.releases) if (!Array.isArray(r.checks) || !r.checks.every(c => typeof c.label === 'string' && typeof c.done === 'boolean') || typeof r.date !== 'string') throw Error('Invalid release.');
-  for (const t of s.tracks) if (typeof t.file !== 'string' || !['Draft','Mixing','Mastered','Released'].includes(t.status)) throw Error('Invalid track.');
-  for (const c of s.campaigns) if (!['Planned','In progress','Done'].includes(c.status) || typeof c.date !== 'string') throw Error('Invalid campaign.');
+  for (const r of s.releases) if (!Array.isArray(r.checks) || r.checks.length > 1000 || !r.checks.every(c => c && typeof c === 'object' && !Array.isArray(c) && typeof c.label === 'string' && c.label.length <= 1000 && typeof c.done === 'boolean' && (c.owner === undefined || typeof c.owner === 'string') && (c.due === undefined || typeof c.due === 'string')) || typeof r.date !== 'string' || (r.type !== undefined && !['Single','EP','Album'].includes(r.type))) throw Error('Invalid release.');
+  for (const t of s.tracks) if (typeof t.file !== 'string' || !['Draft','Mixing','Mastered','Released'].includes(t.status) || (t.size !== undefined && (!Number.isFinite(t.size) || t.size < 0)) || (t.format !== undefined && typeof t.format !== 'string')) throw Error('Invalid track.');
+  for (const c of s.campaigns) if (!['Planned','In progress','Done'].includes(c.status) || typeof c.date !== 'string' || (c.channel !== undefined && typeof c.channel !== 'string') || (c.caption !== undefined && typeof c.caption !== 'string')) throw Error('Invalid campaign.');
   return s;
 }
 function createStore(dir) {
@@ -83,6 +85,13 @@ function createStore(dir) {
     const field=kind==='audio'?'file':'art';
     return collection?state[collection].find(row=>row.id===id)?.[field]:undefined;
   }
-  return {read:()=>structuredClone(state),write,writeAsync,writeRenderer,asset,flush:()=>pendingWrite,file};
+  function health(){
+    let directoryReadable=false,directoryWritable=false,workspaceReadable=true,workspaceValid=true;
+    try{fs.accessSync(dir,fs.constants.R_OK);directoryReadable=true;}catch{}
+    try{fs.accessSync(dir,fs.constants.W_OK);directoryWritable=true;}catch{}
+    try{if(fs.existsSync(file)){fs.accessSync(file,fs.constants.R_OK);validate(JSON.parse(fs.readFileSync(file,'utf8')));}}catch{workspaceReadable=false;workspaceValid=false;}
+    return {ok:directoryReadable&&directoryWritable&&workspaceReadable&&workspaceValid,checks:{dataDirectoryReadable:directoryReadable,dataDirectoryWritable:directoryWritable,workspaceReadable,workspaceValid}};
+  }
+  return {read:()=>structuredClone(state),write,writeAsync,writeRenderer,asset,health,flush:()=>pendingWrite,file};
 }
 module.exports={blank,validate,createStore,randomUUID};

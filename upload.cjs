@@ -48,16 +48,18 @@ async function openStableFile(file, limit) {
 function validateReceipt(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw uploadError('SoundCloud returned an invalid upload receipt. Check your catalog before retrying.', { code: 'SC_UPLOAD_UNCERTAIN' });
   const id = data.id;
-  const idText = Number.isSafeInteger(id) && id > 0 ? String(id) : typeof id === 'string' && /^\d{1,20}$/.test(id) && /[1-9]/.test(id) ? id : '';
-  const urn = typeof data.urn === 'string' && /^soundcloud:tracks:\d{1,20}$/.test(data.urn) && /[1-9]/.test(data.urn.slice('soundcloud:tracks:'.length)) ? data.urn : '';
-  if ((!idText && !urn) || (idText && urn && urn.slice('soundcloud:tracks:'.length) !== idText)) {
+  const idText = Number.isSafeInteger(id) && id > 0 ? String(id) : typeof id === 'string' && /^\d{1,128}$/.test(id) && /[1-9]/.test(id) ? id : '';
+  const urnPattern = /^soundcloud:tracks:[1-9]\d{0,127}$/;
+  const urn = [data.urn, id].find(value => typeof value === 'string' && value.length <= 160 && urnPattern.test(value)) || '';
+  if (!urn && !idText) {
     throw uploadError('SoundCloud accepted the request but returned no valid track ID. Check your SoundCloud catalog before retrying.', { code: 'SC_UPLOAD_UNCERTAIN' });
   }
   return data;
 }
 
-async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks`, onProgress = () => {}, signal, artwork } = {}) {
+async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks`, onProgress = () => {}, onRateLimit = () => {}, signal, artwork, operationTimeoutMs = 15 * 60 * 1000 } = {}) {
   if (typeof token !== 'string' || !token || token.length > 65536) throw Error('Connect your SoundCloud account before uploading.');
+  if (!Number.isFinite(operationTimeoutMs) || operationTimeoutMs < 1000 || operationTimeoutMs > 60 * 60 * 1000) throw Error('Upload time limit is invalid.');
   let target;
   try { target = new URL(url); } catch { throw Error('The SoundCloud upload address is invalid.'); }
   if (target.protocol !== 'https:' || target.origin !== uploadOrigin || target.username || target.password || target.port || target.hash || target.pathname !== '/tracks') {
@@ -103,9 +105,11 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
       let stream;
       let done = false;
       let request;
+      let deadlineTimer;
       const finish = (error, result) => {
         if (done) return;
         done = true;
+        clearTimeout(deadlineTimer);
         stream?.destroy();
         signal?.removeEventListener('abort', cancel);
         error ? reject(error) : resolve(result);
@@ -131,11 +135,12 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
             finish(ambiguousError('SoundCloud returned an unexpectedly large upload response.'));
           }
         });
-        response.on('error', error => finish(ambiguousError(`Upload response was interrupted (${error.message}).`)));
+        response.on('error', () => finish(ambiguousError('The upload response was interrupted.')));
         response.on('end', () => {
           const status = response.statusCode || 0;
           if (status < 200 || status >= 300) {
             const retry = retryAfterMs(response);
+            if (status === 429) { try { onRateLimit(retry); } catch { /* Rate limiting still surfaces if the observer fails. */ } }
             const retryText = Number.isFinite(retry) ? ` Wait about ${Math.ceil(retry / 1000)} seconds, then check your catalog before retrying.` : '';
             const uncertain = status >= 500;
             finish(uploadError(`SoundCloud rejected the upload (${status}).${status === 401 ? ' Reconnect your account.' : status === 413 ? ' The file exceeds the upload limit.' : status === 429 ? ' Rate limit reached.' : ' Check your account quota and audio format.'}${retryText}${uncertain ? ' The server may have received the upload; check your catalog before retrying.' : ''}`, {
@@ -153,7 +158,7 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
           catch (error) { finish(error.code ? error : ambiguousError('SoundCloud returned an unreadable upload receipt.')); }
         });
       });
-      const onRequestError = error => finish(ambiguousError(`Upload connection failed (${error.message}).`));
+      const onRequestError = () => finish(ambiguousError('The upload connection was interrupted.'));
       const waitForDrain = () => new Promise((resolveDrain, rejectDrain) => {
         const drain = () => { request.off('error', onError); resolveDrain(); };
         const onError = error => { request.off('drain', drain); rejectDrain(error); };
@@ -161,7 +166,8 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
         request.once('error', onError);
       });
       request.on('error', onRequestError);
-      request.setTimeout(15 * 60 * 1000, () => request.destroy(ambiguousError('Upload timed out.')));
+      request.setTimeout(operationTimeoutMs, () => request.destroy(ambiguousError('Upload timed out.')));
+      deadlineTimer = setTimeout(() => request.destroy(ambiguousError('Upload exceeded its time limit.')), operationTimeoutMs);
       signal?.addEventListener('abort', cancel, { once: true });
       if (signal?.aborted) { cancel(); return; }
 
@@ -188,7 +194,7 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
           if (done) return;
           request.end();
         } catch (error) {
-          request.destroy(error.code === 'SC_UPLOAD_UNCERTAIN' ? error : ambiguousError(`Upload stream failed (${error.message}).`));
+          request.destroy(error.code === 'SC_UPLOAD_UNCERTAIN' ? error : ambiguousError('The upload stream was interrupted.'));
         }
       })();
     });

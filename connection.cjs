@@ -10,6 +10,12 @@ const catalogTrackLimit = 10000;
 const catalogPageLimit = 200;
 const catalogPageCountLimit = 50;
 const apiResponseByteLimit = 16 * 1024 * 1024;
+const apiCallTimeoutMs = 30000;
+const catalogSyncDeadlineMs = 5 * 60 * 1000;
+const apiCircuitFailureLimit = 3;
+const apiCircuitCooldownMs = 30000;
+
+const apiCircuit = { consecutiveFailures: 0, openedUntil: 0, probeInFlight: false };
 
 function apiError(message, { code, statusCode, retryAfterMs } = {}) {
   const error = Error(message);
@@ -36,14 +42,85 @@ function boundedRetryMessage(status, wait) {
   return `SoundCloud returned ${status}. ${status === 429 ? 'Rate limit reached.' : 'The service is temporarily unavailable.'}${seconds === null ? ' Please try again later.' : ` Try again in about ${seconds} seconds.`}`;
 }
 
+function classifyNetworkError(error, deadlineAt) {
+  if (error?.code && String(error.code).startsWith('SC_')) return error;
+  if (deadlineAt && Date.now() >= deadlineAt) {
+    return apiError('SoundCloud operation exceeded its time limit. Your previous catalog snapshot was preserved.', { code: 'SC_DEADLINE_EXCEEDED' });
+  }
+  if (error?.name === 'TimeoutError' || ['ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT'].includes(error?.cause?.code)) {
+    return apiError('SoundCloud request timed out. Check your connection and try again.', { code: 'SC_NETWORK_TIMEOUT' });
+  }
+  if (error?.name === 'AbortError') return apiError('SoundCloud request was interrupted.', { code: 'SC_REQUEST_ABORTED' });
+  const networkCodes = ['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'UND_ERR_SOCKET'];
+  if (networkCodes.includes(error?.code) || networkCodes.includes(error?.cause?.code)) {
+    return apiError('Could not reach SoundCloud. Check your internet connection and try again.', { code: 'SC_NETWORK_UNAVAILABLE' });
+  }
+  return apiError('SoundCloud request failed. Check your connection and try again.', { code: 'SC_NETWORK_ERROR' });
+}
+
+function requestSignal(deadlineAt) {
+  const remaining = deadlineAt ? deadlineAt - Date.now() : apiCallTimeoutMs;
+  if (remaining <= 0) throw classifyNetworkError(Error('deadline'), deadlineAt);
+  return AbortSignal.timeout(Math.min(apiCallTimeoutMs, remaining));
+}
+
+function requestHeaderTimeout(deadlineAt) {
+  const remaining = deadlineAt ? deadlineAt - Date.now() : apiCallTimeoutMs;
+  if (remaining <= 0) throw classifyNetworkError(Error('deadline'), deadlineAt);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException('Request timed out.', 'TimeoutError')), Math.min(apiCallTimeoutMs, remaining));
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+
+function enterApiCircuit() {
+  const now = Date.now();
+  if (apiCircuit.openedUntil > now) {
+    const wait = apiCircuit.openedUntil - now;
+    throw apiError(`SoundCloud is temporarily unavailable after repeated failures. Try again in about ${Math.ceil(wait / 1000)} seconds.`, {
+      code: 'SC_CIRCUIT_OPEN', retryAfterMs: wait
+    });
+  }
+  if (apiCircuit.openedUntil && apiCircuit.probeInFlight) {
+    throw apiError('SoundCloud is checking whether the service has recovered. Try again shortly.', { code: 'SC_CIRCUIT_PROBING', retryAfterMs: 1000 });
+  }
+  if (apiCircuit.openedUntil) apiCircuit.probeInFlight = true;
+}
+
+function recordApiSuccess() {
+  apiCircuit.consecutiveFailures = 0;
+  apiCircuit.openedUntil = 0;
+  apiCircuit.probeInFlight = false;
+}
+
+function recordApiFailure(error) {
+  apiCircuit.probeInFlight = false;
+  const counts = error?.statusCode >= 500 || ['SC_NETWORK_TIMEOUT', 'SC_NETWORK_UNAVAILABLE', 'SC_NETWORK_ERROR', 'SC_DEADLINE_EXCEEDED'].includes(error?.code);
+  if (!counts) return;
+  apiCircuit.consecutiveFailures++;
+  if (apiCircuit.consecutiveFailures >= apiCircuitFailureLimit) apiCircuit.openedUntil = Date.now() + apiCircuitCooldownMs;
+}
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function validTrackId(value) {
+function validTrackUrn(value) {
+  if (typeof value !== 'string' || value.length > 160 || !/^soundcloud:tracks:\d{1,128}$/.test(value)) return '';
+  const digits = value.slice('soundcloud:tracks:'.length).replace(/^0+/, '');
+  return digits ? `soundcloud:tracks:${digits}` : '';
+}
+
+function validLegacyTrackId(value) {
   if (Number.isSafeInteger(value) && value > 0) return String(value);
-  if (typeof value === 'string' && /^\d{1,20}$/.test(value) && /[1-9]/.test(value)) return value;
+  if (typeof value === 'string' && /^\d{1,128}$/.test(value) && /[1-9]/.test(value)) return value;
   return '';
+}
+
+function trackKey(track) {
+  const urn = validTrackUrn(track?.urn) || validTrackUrn(track?.id);
+  if (urn) return urn;
+  const legacyId = validLegacyTrackId(track?.id) || validLegacyTrackId(track?.legacy_id);
+  return legacyId ? `soundcloud:tracks:${legacyId}` : '';
 }
 
 function parseCatalogPage(data) {
@@ -89,7 +166,7 @@ function validateProfile(profile) {
   };
 }
 
-async function readJsonBounded(response, limit = apiResponseByteLimit) {
+async function readJsonBounded(response, limit = apiResponseByteLimit, deadlineAt) {
   const length = Number(response.headers.get('content-length'));
   if (Number.isFinite(length) && length > limit) {
     await response.body?.cancel();
@@ -110,13 +187,18 @@ async function readJsonBounded(response, limit = apiResponseByteLimit) {
       }
       chunks.push(Buffer.from(value));
     }
+  } catch (error) {
+    if (error?.code === 'SC_RESPONSE_TOO_LARGE') throw error;
+    throw classifyNetworkError(error, deadlineAt);
   } finally { reader.releaseLock(); }
   try { return JSON.parse(Buffer.concat(chunks, size).toString('utf8')); }
   catch { throw apiError('SoundCloud returned invalid JSON.', { code: 'SC_INVALID_RESPONSE' }); }
 }
 
 function snapshotTrack(track) {
-  if (!isPlainObject(track) || !validTrackId(track.id) || typeof track.title !== 'string' || track.title.length > 1000) {
+  const urn = validTrackUrn(track?.urn) || validTrackUrn(track?.id);
+  const legacyId = validLegacyTrackId(track?.id);
+  if (!isPlainObject(track) || (!urn && !legacyId) || (track.urn !== undefined && track.urn !== null && !validTrackUrn(track.urn)) || typeof track.title !== 'string' || track.title.length > 1000) {
     throw apiError('SoundCloud returned an invalid track record. The previous snapshot was preserved.', { code: 'SC_INVALID_TRACK' });
   }
   for (const field of ['playback_count', 'likes_count', 'favoritings_count']) {
@@ -133,7 +215,9 @@ function snapshotTrack(track) {
     } catch { /* The catalogue remains usable without a malformed permalink. */ }
   }
   return {
-    id: track.id,
+    id: urn || track.id,
+    ...(urn ? { urn } : {}),
+    ...(urn && legacyId ? { legacy_id: legacyId } : {}),
     title: track.title,
     sharing: typeof track.sharing === 'string' && track.sharing.length <= 32 ? track.sharing : '',
     playback_count: Number.isSafeInteger(track.playback_count) && track.playback_count >= 0 ? track.playback_count : 0,
@@ -152,7 +236,7 @@ function appendSnapshotPage(tracks, data, seenIds) {
   }
   for (const source of collection) {
     const track = snapshotTrack(source);
-    const id = String(track.id);
+    const id = trackKey(track);
     if (seenIds.has(id)) throw apiError('SoundCloud repeated a track across catalog pages. The previous snapshot was preserved.', { code: 'SC_DUPLICATE_TRACK' });
     seenIds.add(id);
     tracks.push(track);
@@ -260,6 +344,34 @@ function createConnection(dir) {
     vault = { version: 2, activeAccountId: first.id, accounts: [first] };
   }
   const refreshingByAccount = new Map();
+  const apiCooldownByAccount = new Map();
+
+  function enforceAccountCooldown(record) {
+    const until = apiCooldownByAccount.get(record.id) || 0;
+    if (until <= Date.now()) {
+      apiCooldownByAccount.delete(record.id);
+      return;
+    }
+    const wait = until - Date.now();
+    throw apiError(`SoundCloud asked this account to slow down. Try again in about ${Math.ceil(wait / 1000)} seconds.`, {
+      code: 'SC_RATE_LIMITED', statusCode: 429, retryAfterMs: wait
+    });
+  }
+
+  function applyAccountCooldown(record, wait) {
+    const delay = Number.isFinite(wait) ? wait : 1000;
+    apiCooldownByAccount.set(record.id, Date.now() + Math.max(0, delay));
+  }
+
+  function clearAccountTokens(record) {
+    const candidate = structuredClone(vault);
+    const target = candidate.accounts.find(item => item.id === record.id);
+    if (!target) return;
+    target.accessToken = '';
+    target.refreshToken = '';
+    target.expires = 0;
+    persist(candidate);
+  }
 
   function persist(nextVault = vault) {
     if (!safeStorage.isEncryptionAvailable()) throw Error('Windows credential encryption is unavailable.');
@@ -321,27 +433,66 @@ function createConnection(dir) {
     };
   }
 
-  async function token(record, params) {
-    const response = await fetch('https://secure.soundcloud.com/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-      body: new URLSearchParams({ client_id: record.clientId, client_secret: record.clientSecret, ...params }),
-      redirect: 'manual',
-      signal: AbortSignal.timeout(30000)
-    });
+  function health() {
+    let encryptionAvailable = false;
+    let vaultReadable = true;
+    let vaultWritable = true;
+    try { encryptionAvailable = safeStorage.isEncryptionAvailable(); } catch { /* The health payload stays free of OS error details. */ }
+    try { if (fs.existsSync(file)) fs.accessSync(file, fs.constants.R_OK); }
+    catch { vaultReadable = false; }
+    try { fs.accessSync(fs.existsSync(file) ? file : dir, fs.constants.W_OK); }
+    catch { vaultWritable = false; }
+    const record = active();
+    const accountCooldownMs = Math.max(0, (apiCooldownByAccount.get(record?.id) || 0) - Date.now());
+    const circuitCooldownMs = Math.max(0, apiCircuit.openedUntil - Date.now());
+    return {
+      ok: encryptionAvailable && vaultReadable && vaultWritable,
+      checks: {
+        osEncryptionAvailable: encryptionAvailable,
+        credentialVaultReadable: vaultReadable,
+        credentialVaultWritable: vaultWritable,
+        activeAccountConfigured: !!record?.clientId,
+        activeAccountConnected: !!record?.accessToken,
+        accountCooldownMs,
+        apiCircuitCooldownMs: circuitCooldownMs
+      },
+      accountCount: vault.accounts.length
+    };
+  }
+
+  async function token(record, params, deadlineAt) {
+    if (params.grant_type === 'refresh_token') enforceAccountCooldown(record);
+    let response;
+    try {
+      response = await fetch('https://secure.soundcloud.com/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+        body: new URLSearchParams({ client_id: record.clientId, client_secret: record.clientSecret, ...params }),
+        redirect: 'manual',
+        signal: requestSignal(deadlineAt)
+      });
+    } catch (error) { throw classifyNetworkError(error, deadlineAt); }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel();
       throw apiError('SoundCloud redirected the authorization request unexpectedly.', { code: 'SC_UNEXPECTED_REDIRECT', statusCode: response.status });
     }
     if (!response.ok) {
       const wait = retryAfterMs(response);
-      await response.body?.cancel();
+      let details = null;
+      if (params.grant_type === 'refresh_token' && [400, 401].includes(response.status)) {
+        details = await readJsonBounded(response, 64 * 1024, deadlineAt).catch(() => null);
+      } else await response.body?.cancel();
+      if (response.status === 429) applyAccountCooldown(record, wait);
+      if (params.grant_type === 'refresh_token' && ['invalid_grant', 'invalid_token'].includes(details?.error)) {
+        clearAccountTokens(record);
+        throw apiError('The saved SoundCloud authorization was revoked. Reconnect this account to continue.', { code: 'SC_TOKEN_REVOKED', statusCode: response.status });
+      }
       throw apiError(response.status === 429 || response.status === 503
         ? boundedRetryMessage(response.status, wait)
         : `SoundCloud authorization failed (${response.status}). Check your app credentials and redirect address.`,
       { code: response.status === 429 ? 'SC_RATE_LIMITED' : 'SC_AUTH_FAILED', statusCode: response.status, retryAfterMs: wait });
     }
-    const data = await readJsonBounded(response, 512 * 1024);
+    const data = await readJsonBounded(response, 512 * 1024, deadlineAt);
     if (!isPlainObject(data) || typeof data.access_token !== 'string' || !data.access_token || data.access_token.length > 65536 ||
         typeof data.refresh_token !== 'string' || !data.refresh_token || data.refresh_token.length > 65536) {
       throw apiError('SoundCloud did not return a complete authorization.', { code: 'SC_INVALID_TOKEN_RESPONSE' });
@@ -359,30 +510,48 @@ function createConnection(dir) {
     persist(candidate);
   }
 
-  async function refreshIfNeeded(record) {
+  async function refreshIfNeeded(record, deadlineAt) {
     if (Date.now() <= record.expires - 60000) return;
     let refreshing = refreshingByAccount.get(record.id);
     if (!refreshing) {
-      refreshing = token(record, { grant_type: 'refresh_token', refresh_token: record.refreshToken })
+      refreshing = token(record, { grant_type: 'refresh_token', refresh_token: record.refreshToken }, deadlineAt)
         .finally(() => refreshingByAccount.delete(record.id));
       refreshingByAccount.set(record.id, refreshing);
     }
     await refreshing;
   }
 
-  async function request(url, record = active()) {
+  async function request(url, record = active(), { deadlineAt, retriedAuth = false } = {}) {
     const target = new URL(url, 'https://api.soundcloud.com');
     if (target.protocol !== 'https:' || target.origin !== 'https://api.soundcloud.com' || target.username || target.password || target.port || target.hash) throw Error('Unexpected API pagination address.');
     if (!record?.accessToken) throw Error('Connect your SoundCloud account first.');
-    await refreshIfNeeded(record);
+    enforceAccountCooldown(record);
+    await refreshIfNeeded(record, deadlineAt);
+    enterApiCircuit();
     let current = target;
     let response;
     for (let redirects = 0; redirects <= 3; redirects++) {
-      response = await fetch(current, {
-        headers: { Authorization: 'OAuth ' + record.accessToken, Accept: 'application/json' },
-        redirect: 'manual',
-        signal: AbortSignal.timeout(30000)
-      });
+      try {
+        response = await fetch(current, {
+          headers: { Authorization: 'OAuth ' + record.accessToken, Accept: 'application/json' },
+          redirect: 'manual',
+          signal: requestSignal(deadlineAt)
+        });
+      } catch (error) {
+        const classified = classifyNetworkError(error, deadlineAt);
+        recordApiFailure(classified);
+        throw classified;
+      }
+      if (response.status >= 500) {
+        const wait = retryAfterMs(response);
+        await response.body?.cancel();
+        const failure = apiError(response.status === 503 ? boundedRetryMessage(response.status, wait) : `SoundCloud returned ${response.status}. Check the service status and try again.`, {
+          code: response.status === 503 ? 'SC_TEMPORARILY_UNAVAILABLE' : 'SC_SERVER_ERROR', statusCode: response.status, retryAfterMs: wait
+        });
+        recordApiFailure(failure);
+        throw failure;
+      }
+      recordApiSuccess();
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
       const location = response.headers.get('location');
       await response.body?.cancel();
@@ -395,25 +564,39 @@ function createConnection(dir) {
       }
       current = next;
     }
+    if (response.status === 401) {
+      await response.body?.cancel();
+      if (!retriedAuth && record.refreshToken) {
+        await token(record, { grant_type: 'refresh_token', refresh_token: record.refreshToken }, deadlineAt);
+        return request(url, record, { deadlineAt, retriedAuth: true });
+      }
+      clearAccountTokens(record);
+      throw apiError('The saved SoundCloud authorization is no longer valid. Reconnect this account to continue.', { code: 'SC_TOKEN_REVOKED', statusCode: 401 });
+    }
     if (!response.ok) {
       const wait = retryAfterMs(response);
       await response.body?.cancel();
-      const rateLimited = response.status === 429 || response.status === 503;
-      throw apiError(rateLimited ? boundedRetryMessage(response.status, wait) : `SoundCloud returned ${response.status}. Try reconnecting your account.`, {
-        code: response.status === 429 ? 'SC_RATE_LIMITED' : response.status === 503 ? 'SC_TEMPORARILY_UNAVAILABLE' : 'SC_API_ERROR',
+      if (response.status === 429) applyAccountCooldown(record, wait);
+      throw apiError(response.status === 429 ? boundedRetryMessage(response.status, wait) : `SoundCloud returned ${response.status}. Check the account permissions and try again.`, {
+        code: response.status === 429 ? 'SC_RATE_LIMITED' : 'SC_API_ERROR',
         statusCode: response.status,
         retryAfterMs: wait
       });
     }
-    return readJsonBounded(response);
+    try { return await readJsonBounded(response, apiResponseByteLimit, deadlineAt); }
+    catch (error) {
+      if (['SC_NETWORK_TIMEOUT', 'SC_NETWORK_UNAVAILABLE', 'SC_NETWORK_ERROR', 'SC_DEADLINE_EXCEEDED'].includes(error?.code)) recordApiFailure(error);
+      throw error;
+    }
   }
 
   async function sync() {
     if (syncing) throw Error('A SoundCloud catalog sync is already running.');
     syncing = true;
     const record = active();
+    const deadlineAt = Date.now() + catalogSyncDeadlineMs;
     try {
-      const profile = validateProfile(await request('/me', record));
+      const profile = validateProfile(await request('/me', record, { deadlineAt }));
       const tracks = [];
       let next = '/me/tracks?linked_partitioning=true&limit=200';
       let pages = 0;
@@ -423,9 +606,10 @@ function createConnection(dir) {
         next = validatePaginationHref(next);
         if (seenPages.has(next)) throw apiError('SoundCloud repeated a catalog page. The previous snapshot was preserved.', { code: 'SC_PAGINATION_LOOP' });
         seenPages.add(next);
-        const data = await request(next, record);
+        const data = await request(next, record, { deadlineAt });
         next = appendSnapshotPage(tracks, data, seenIds);
       }
+      if (Date.now() >= deadlineAt) throw classifyNetworkError(Error('deadline'), deadlineAt);
       if (next) throw Error('Catalog exceeds this build’s 10,000-track sync limit. Previous snapshot preserved.');
       const candidate = structuredClone(vault);
       const candidateRecord = candidate.accounts.find(item => item.id === record.id);
@@ -443,13 +627,17 @@ function createConnection(dir) {
     }
   }
 
-  async function preview(trackId, range = '') {
+  async function preview(trackId, range = '', authRetried = false, deadlineAt = Date.now() + 60000) {
     const record = active();
     if (!record?.accessToken) throw Error('Connect your SoundCloud account to preview this track.');
-    await refreshIfNeeded(record);
-    const track = record.snapshot?.tracks?.find(item => String(item.id) === String(trackId));
-    if (!track || track.streamable !== true || !/^\d+$/.test(String(track.id))) throw Error('This track is not available for preview through the SoundCloud API.');
-    let target = new URL(`https://api.soundcloud.com/tracks/${track.id}/stream`);
+    enforceAccountCooldown(record);
+    await refreshIfNeeded(record, deadlineAt);
+    enterApiCircuit();
+    const track = record.snapshot?.tracks?.find(item => String(item.id) === String(trackId) || String(item.urn || '') === String(trackId) || String(item.legacy_id || '') === String(trackId));
+    if (!track || track.streamable !== true) throw Error('This track is not available for preview through the SoundCloud API.');
+    const canonicalTrackUrn = validTrackUrn(track.urn) || validTrackUrn(track.id) || (validLegacyTrackId(track.legacy_id || track.id) ? `soundcloud:tracks:${validLegacyTrackId(track.legacy_id || track.id)}` : '');
+    if (!canonicalTrackUrn) throw Error('This track is not available for preview through the SoundCloud API.');
+    let target = new URL(`https://api.soundcloud.com/tracks/${encodeURIComponent(canonicalTrackUrn)}/stream`);
     const requestHeaders = {};
     if (typeof range === 'string' && /^bytes=\d*-\d*$/.test(range)) requestHeaders.Range = range;
     let response;
@@ -457,11 +645,36 @@ function createConnection(dir) {
     for (let redirects = 0; redirects <= 3; redirects++) {
       const headers = { Accept: 'audio/*', ...requestHeaders };
       if (authenticated) headers.Authorization = 'OAuth ' + record.accessToken;
-      response = await fetch(target, { headers, redirect: 'manual', signal: AbortSignal.timeout(30000) });
+      const timeout = requestHeaderTimeout(deadlineAt);
+      try { response = await fetch(target, { headers, redirect: 'manual', signal: timeout.signal }); }
+      catch (error) {
+        const classified = classifyNetworkError(error, deadlineAt);
+        if (target.origin === 'https://api.soundcloud.com') recordApiFailure(classified);
+        throw classified;
+      } finally { timeout.clear(); }
+      if (target.origin === 'https://api.soundcloud.com' && response.status >= 500) {
+        const failure = apiError('SoundCloud preview service is temporarily unavailable.', { code: 'SC_TEMPORARILY_UNAVAILABLE', statusCode: response.status, retryAfterMs: retryAfterMs(response) });
+        recordApiFailure(failure);
+        await response.body?.cancel();
+        throw failure;
+      }
+      if (target.origin === 'https://api.soundcloud.com' && response.status === 401) {
+        await response.body?.cancel();
+        if (!authRetried && record.refreshToken) {
+          await token(record, { grant_type: 'refresh_token', refresh_token: record.refreshToken }, deadlineAt);
+          return preview(trackId, range, true, deadlineAt);
+        }
+        clearAccountTokens(record);
+        throw apiError('The saved SoundCloud authorization is no longer valid. Reconnect this account to continue.', { code: 'SC_TOKEN_REVOKED', statusCode: 401 });
+      }
+      if (target.origin === 'https://api.soundcloud.com') {
+        recordApiSuccess();
+        if (response.status === 429) applyAccountCooldown(record, retryAfterMs(response));
+      }
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
       const location = response.headers.get('location');
       await response.body?.cancel();
-      if (!location || redirects === 3) throw Error('SoundCloud returned an unsupported preview redirect.');
+      if (!location || redirects === 3) throw apiError('SoundCloud returned an unsupported preview redirect.', { code: 'SC_UNEXPECTED_REDIRECT', statusCode: response.status });
       target = new URL(location, target);
       if (target.protocol !== 'https:' || target.username || target.password || target.port || !target.hostname.endsWith('.sndcdn.com')) {
         throw Error('SoundCloud returned an unsupported preview address.');
@@ -474,8 +687,9 @@ function createConnection(dir) {
       throw Error('SoundCloud returned an unsupported preview address.');
     }
     if (![200, 206, 416].includes(response.status)) {
+      if (response.status === 429 && new URL(response.url).origin === 'https://api.soundcloud.com') applyAccountCooldown(record, retryAfterMs(response));
       await response.body?.cancel();
-      throw Error('SoundCloud could not stream this track preview.');
+      throw apiError('SoundCloud could not stream this track preview.', { code: response.status === 429 ? 'SC_RATE_LIMITED' : 'SC_PREVIEW_UNAVAILABLE', statusCode: response.status, retryAfterMs: retryAfterMs(response) });
     }
     const responseHeaders = new Headers();
     for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
@@ -581,7 +795,7 @@ function createConnection(dir) {
           if (server.listening) server.close();
           error ? reject(error) : resolve();
         };
-        server.on('error', error => finish(Error(error.code === 'EADDRINUSE' ? 'The connection port is in use. Close the other connection attempt and try again.' : error.message)));
+        server.on('error', error => finish(Error(error.code === 'EADDRINUSE' ? 'The connection port is in use. Close the other connection attempt and try again.' : 'The local authorization callback could not be opened.')));
         server.listen(49832, '127.0.0.1', () => {
           const url = new URL('https://secure.soundcloud.com/authorize');
           url.search = new URLSearchParams({
@@ -592,7 +806,7 @@ function createConnection(dir) {
             code_challenge_method: 'S256',
             state
           }).toString();
-          shell.openExternal(url.toString()).catch(finish);
+          shell.openExternal(url.toString()).catch(() => finish(Error('Could not open SoundCloud authorization in your browser.')));
         });
         timer = setTimeout(() => finish(Error('Connection timed out after five minutes. Try connecting again.')), 300000);
       });
@@ -604,6 +818,7 @@ function createConnection(dir) {
 
   return {
     status,
+    health,
     sync,
     credentials,
     add,
@@ -612,7 +827,11 @@ function createConnection(dir) {
     async upload(file, metadata, options) {
       const record = active();
       await request('/me', record);
-      return require('./upload.cjs').sendUpload(file, metadata, { ...options, token: record.accessToken });
+      return require('./upload.cjs').sendUpload(file, metadata, {
+        ...options,
+        token: record.accessToken,
+        onRateLimit: wait => applyAccountCooldown(record, wait)
+      });
     },
     disconnect() {
       if (pending) throw Error('Finish the current connection attempt first.');
