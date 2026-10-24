@@ -9,13 +9,36 @@ const catalogDescriptionLimit = 2000;
 const catalogTrackLimit = 10000;
 const catalogPageLimit = 200;
 const catalogPageCountLimit = 50;
+const catalogTombstoneLimit = 10000;
 const apiResponseByteLimit = 16 * 1024 * 1024;
+const catalogExtraFieldLimit = 16;
+const catalogExtraValueLimit = 512;
+const catalogExtraByteLimit = 256 * 1024;
+const catalogFreshnessWindowMs = 24 * 60 * 60 * 1000;
 const apiCallTimeoutMs = 30000;
 const catalogSyncDeadlineMs = 5 * 60 * 1000;
 const apiCircuitFailureLimit = 3;
 const apiCircuitCooldownMs = 30000;
 
 const apiCircuit = { consecutiveFailures: 0, openedUntil: 0, probeInFlight: false };
+const catalogFieldPolicy = Object.freeze({
+  id: { source: 'soundcloud-api', conflict: 'remote-identity' },
+  urn: { source: 'soundcloud-api', conflict: 'remote-identity' },
+  legacy_id: { source: 'soundcloud-api', conflict: 'remote-identity' },
+  title: { source: 'soundcloud-api', conflict: 'remote-snapshot-wins' },
+  sharing: { source: 'soundcloud-api', conflict: 'remote-snapshot-wins' },
+  playback_count: { source: 'soundcloud-api', conflict: 'remote-snapshot-wins' },
+  likes_count: { source: 'soundcloud-api', conflict: 'remote-snapshot-wins' },
+  favoritings_count: { source: 'soundcloud-api', conflict: 'remote-snapshot-wins' },
+  description: { source: 'soundcloud-api', conflict: 'remote-snapshot-wins' },
+  permalink_url: { source: 'soundcloud-api', conflict: 'remote-snapshot-wins' },
+  streamable: { source: 'soundcloud-api', conflict: 'remote-snapshot-wins' },
+  apiExtras: { source: 'soundcloud-api', conflict: 'preserve-bounded-unknown-primitives' }
+});
+const normalizedTrackFields = new Set([
+  'id', 'urn', 'legacy_id', 'title', 'sharing', 'playback_count', 'likes_count',
+  'favoritings_count', 'description', 'permalink_url', 'streamable'
+]);
 
 function apiError(message, { code, statusCode, retryAfterMs } = {}) {
   const error = Error(message);
@@ -195,7 +218,7 @@ async function readJsonBounded(response, limit = apiResponseByteLimit, deadlineA
   catch { throw apiError('SoundCloud returned invalid JSON.', { code: 'SC_INVALID_RESPONSE' }); }
 }
 
-function snapshotTrack(track) {
+function snapshotTrack(track, extraBudget) {
   const urn = validTrackUrn(track?.urn) || validTrackUrn(track?.id);
   const legacyId = validLegacyTrackId(track?.id) || validLegacyTrackId(track?.legacy_id);
   if (!isPlainObject(track) || (!urn && !legacyId) || (track.urn !== undefined && track.urn !== null && !validTrackUrn(track.urn)) || typeof track.title !== 'string' || track.title.length > 1000) {
@@ -214,6 +237,18 @@ function snapshotTrack(track) {
       if (url.protocol === 'https:' && ['soundcloud.com', 'www.soundcloud.com', 'm.soundcloud.com'].includes(url.hostname) && !url.username && !url.password && !url.port) safePermalink = url.toString();
     } catch { /* The catalogue remains usable without a malformed permalink. */ }
   }
+  const apiExtras = Object.create(null);
+  let extraFieldCount = 0;
+  for (const [key, value] of Object.entries(track)) {
+    if (normalizedTrackFields.has(key) || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) || /(?:token|secret|password|email|authorization|cookie)/i.test(key) || ['constructor', 'prototype'].includes(key)) continue;
+    if (!(value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (typeof value === 'string' && value.length <= catalogExtraValueLimit))) continue;
+    if (extraFieldCount >= catalogExtraFieldLimit) break;
+    const bytes = Buffer.byteLength(JSON.stringify([key, value]), 'utf8');
+    if (extraBudget.usedBytes + bytes > catalogExtraByteLimit) break;
+    apiExtras[key] = value;
+    extraBudget.usedBytes += bytes;
+    extraFieldCount++;
+  }
   return {
     id: urn || track.id,
     ...(urn ? { urn } : {}),
@@ -225,23 +260,98 @@ function snapshotTrack(track) {
     favoritings_count: Number.isSafeInteger(track.favoritings_count) && track.favoritings_count >= 0 ? track.favoritings_count : 0,
     description: typeof track.description === 'string' ? track.description.slice(0, catalogDescriptionLimit) : '',
     permalink_url: safePermalink,
-    streamable: track.streamable === true
+    streamable: track.streamable === true,
+    ...(extraFieldCount ? { apiExtras } : {})
   };
 }
 
-function appendSnapshotPage(tracks, data, seenIds) {
+function appendSnapshotPage(tracks, data, seenIds, extraBudget) {
   const { collection, nextHref } = parseCatalogPage(data);
   if (collection.length > catalogPageLimit || tracks.length + collection.length > catalogTrackLimit) {
     throw apiError('Catalog exceeds this build’s 10,000-track sync limit. The previous snapshot was preserved.', { code: 'SC_CATALOG_LIMIT' });
   }
   for (const source of collection) {
-    const track = snapshotTrack(source);
+    const track = snapshotTrack(source, extraBudget);
     const id = trackKey(track);
     if (seenIds.has(id)) throw apiError('SoundCloud repeated a track across catalog pages. The previous snapshot was preserved.', { code: 'SC_DUPLICATE_TRACK' });
     seenIds.add(id);
     tracks.push(track);
   }
   return nextHref ? validatePaginationHref(nextHref) : null;
+}
+
+function tombstoneForTrack(track, state, absentSyncs, firstAbsentAt, lastSeenAt, confirmedAt = '') {
+  const key = trackKey(track);
+  if (!key) return null;
+  const legacyId = validLegacyTrackId(track.legacy_id) || validLegacyTrackId(track.id);
+  return {
+    key,
+    id: key,
+    urn: key,
+    ...(legacyId ? { legacy_id: legacyId } : {}),
+    title: typeof track.title === 'string' ? track.title.slice(0, 1000) : '',
+    state,
+    absentSyncs,
+    firstAbsentAt,
+    lastSeenAt,
+    ...(confirmedAt ? { confirmedAt } : {})
+  };
+}
+
+function reconcileTombstones(previousSnapshot, tracks, syncedAt) {
+  const currentKeys = new Set(tracks.map(trackKey));
+  const tombstonesByKey = new Map();
+  const priorTombstones = Array.isArray(previousSnapshot?.tombstones) ? previousSnapshot.tombstones : [];
+  for (const prior of priorTombstones) {
+    if (!isPlainObject(prior)) continue;
+    const key = validTrackUrn(prior.key) || trackKey(prior);
+    if (!key || currentKeys.has(key)) continue;
+    const priorAbsentSyncs = Number.isSafeInteger(prior.absentSyncs) && prior.absentSyncs > 0 ? prior.absentSyncs : 1;
+    const previouslyConfirmed = prior.state === 'confirmed_absent' || priorAbsentSyncs >= 2;
+    const absentSyncs = previouslyConfirmed ? 2 : Math.min(2, priorAbsentSyncs + 1);
+    const state = absentSyncs >= 2 ? 'confirmed_absent' : 'pending_absence';
+    const tombstone = tombstoneForTrack(
+      { ...prior, id: key, urn: key },
+      state,
+      absentSyncs,
+      typeof prior.firstAbsentAt === 'string' ? prior.firstAbsentAt : syncedAt,
+      typeof prior.lastSeenAt === 'string' ? prior.lastSeenAt : (previousSnapshot?.syncedAt || ''),
+      state === 'confirmed_absent' ? (typeof prior.confirmedAt === 'string' ? prior.confirmedAt : syncedAt) : ''
+    );
+    if (tombstone) tombstonesByKey.set(key, tombstone);
+  }
+
+  const priorTracks = Array.isArray(previousSnapshot?.tracks) ? previousSnapshot.tracks : [];
+  for (const track of priorTracks) {
+    const key = trackKey(track);
+    if (!key || currentKeys.has(key) || tombstonesByKey.has(key)) continue;
+    const tombstone = tombstoneForTrack(track, 'pending_absence', 1, syncedAt, previousSnapshot?.syncedAt || '');
+    if (tombstone) tombstonesByKey.set(key, tombstone);
+  }
+
+  return [...tombstonesByKey.values()]
+    .sort((left, right) => {
+      const leftDate = Date.parse(left.firstAbsentAt || '');
+      const rightDate = Date.parse(right.firstAbsentAt || '');
+      return (Number.isFinite(leftDate) ? leftDate : 0) - (Number.isFinite(rightDate) ? rightDate : 0);
+    })
+    .slice(-catalogTombstoneLimit);
+}
+
+function snapshotFreshness(record, now = Date.now()) {
+  const snapshot = record?.snapshot;
+  if (!snapshot) return { state: 'missing', ageMs: null, staleAfterMs: catalogFreshnessWindowMs };
+  const syncedAt = Date.parse(snapshot.syncedAt || snapshot.syncWindow?.completedAt || '');
+  if (!Number.isFinite(syncedAt) || syncedAt > now + 5 * 60 * 1000) {
+    return { state: record.snapshotInvalidatedAt ? 'invalidated' : 'unknown', ageMs: null, staleAfterMs: catalogFreshnessWindowMs };
+  }
+  const ageMs = Math.max(0, now - syncedAt);
+  return {
+    state: record.snapshotInvalidatedAt ? 'invalidated' : ageMs > catalogFreshnessWindowMs ? 'stale' : 'fresh',
+    ageMs,
+    staleAfterMs: catalogFreshnessWindowMs,
+    syncedAt: snapshot.syncedAt || snapshot.syncWindow?.completedAt || ''
+  };
 }
 
 function validateSavedSnapshot(snapshot) {
@@ -344,6 +454,7 @@ function createConnection(dir) {
     vault = { version: 2, activeAccountId: first.id, accounts: [first] };
   }
   const refreshingByAccount = new Map();
+  const apiRequestsByAccount = new Map();
   const apiCooldownByAccount = new Map();
 
   function enforceAccountCooldown(record) {
@@ -370,6 +481,7 @@ function createConnection(dir) {
     target.accessToken = '';
     target.refreshToken = '';
     target.expires = 0;
+    target.snapshotInvalidatedAt = new Date().toISOString();
     persist(candidate);
   }
 
@@ -428,6 +540,7 @@ function createConnection(dir) {
       configured: !!record?.clientId,
       connected: !!record?.accessToken,
       snapshot: record?.snapshot || null,
+      snapshotFreshness: snapshotFreshness(record),
       activeAccountId: record?.id || '',
       accounts: vault.accounts.map(accountStatus)
     };
@@ -521,10 +634,27 @@ function createConnection(dir) {
     await refreshing;
   }
 
-  async function request(url, record = active(), { deadlineAt, retriedAuth = false } = {}) {
+  function request(url, record = active(), options = {}) {
     const target = new URL(url, 'https://api.soundcloud.com');
     if (target.protocol !== 'https:' || target.origin !== 'https://api.soundcloud.com' || target.username || target.password || target.port || target.hash) throw Error('Unexpected API pagination address.');
     if (!record?.accessToken) throw Error('Connect your SoundCloud account first.');
+    let requests = apiRequestsByAccount.get(record.id);
+    const existing = requests?.get(target.href);
+    if (existing) return existing;
+    if (!requests) {
+      requests = new Map();
+      apiRequestsByAccount.set(record.id, requests);
+    }
+    let pendingRequest;
+    pendingRequest = requestOnce(target, record, options).finally(() => {
+      if (requests.get(target.href) === pendingRequest) requests.delete(target.href);
+      if (!requests.size && apiRequestsByAccount.get(record.id) === requests) apiRequestsByAccount.delete(record.id);
+    });
+    requests.set(target.href, pendingRequest);
+    return pendingRequest;
+  }
+
+  async function requestOnce(target, record, { deadlineAt, retriedAuth = false } = {}) {
     enforceAccountCooldown(record);
     await refreshIfNeeded(record, deadlineAt);
     enterApiCircuit();
@@ -568,7 +698,7 @@ function createConnection(dir) {
       await response.body?.cancel();
       if (!retriedAuth && record.refreshToken) {
         await token(record, { grant_type: 'refresh_token', refresh_token: record.refreshToken }, deadlineAt);
-        return request(url, record, { deadlineAt, retriedAuth: true });
+        return requestOnce(target, record, { deadlineAt, retriedAuth: true });
       }
       clearAccountTokens(record);
       throw apiError('The saved SoundCloud authorization is no longer valid. Reconnect this account to continue.', { code: 'SC_TOKEN_REVOKED', statusCode: 401 });
@@ -594,10 +724,13 @@ function createConnection(dir) {
     if (syncing) throw Error('A SoundCloud catalog sync is already running.');
     syncing = true;
     const record = active();
+    const syncStartedAtMs = Date.now();
+    const syncStartedAt = new Date(syncStartedAtMs).toISOString();
     const deadlineAt = Date.now() + catalogSyncDeadlineMs;
     try {
       const profile = validateProfile(await request('/me', record, { deadlineAt }));
       const tracks = [];
+      const extraBudget = { usedBytes: 0 };
       let next = '/me/tracks?linked_partitioning=true&limit=200';
       let pages = 0;
       const seenIds = new Set();
@@ -607,18 +740,31 @@ function createConnection(dir) {
         if (seenPages.has(next)) throw apiError('SoundCloud repeated a catalog page. The previous snapshot was preserved.', { code: 'SC_PAGINATION_LOOP' });
         seenPages.add(next);
         const data = await request(next, record, { deadlineAt });
-        next = appendSnapshotPage(tracks, data, seenIds);
+        next = appendSnapshotPage(tracks, data, seenIds, extraBudget);
       }
       if (Date.now() >= deadlineAt) throw classifyNetworkError(Error('deadline'), deadlineAt);
       if (next) throw Error('Catalog exceeds this build’s 10,000-track sync limit. Previous snapshot preserved.');
       const candidate = structuredClone(vault);
       const candidateRecord = candidate.accounts.find(item => item.id === record.id);
       if (!candidateRecord) throw Error('The connected SoundCloud account is no longer available.');
+      const completedAtMs = Date.now();
+      const syncedAt = new Date(completedAtMs).toISOString();
       candidateRecord.snapshot = {
+        modelVersion: 1,
+        fieldPolicy: structuredClone(catalogFieldPolicy),
         profile,
         tracks,
-        syncedAt: new Date().toISOString()
+        tombstones: reconcileTombstones(record.snapshot, tracks, syncedAt),
+        syncWindow: {
+          startedAt: syncStartedAt,
+          completedAt: syncedAt,
+          durationMs: Math.max(0, completedAtMs - syncStartedAtMs),
+          pageCount: pages,
+          trackCount: tracks.length
+        },
+        syncedAt
       };
+      delete candidateRecord.snapshotInvalidatedAt;
       if (!candidateRecord.label || candidateRecord.label === 'SoundCloud account') candidateRecord.label = profile.username || candidateRecord.label;
       persist(candidate);
       return status();
