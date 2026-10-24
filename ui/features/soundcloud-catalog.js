@@ -8,6 +8,10 @@
     return Number.isFinite(result) && result > 0 ? result : 0;
   };
   const formatNumber = value => numeric(value).toLocaleString();
+  const previewId = track => {
+    const safe = value => /^(?:\d{1,128}|soundcloud:tracks:\d{1,128})$/.test(String(value ?? ''));
+    return safe(track?.urn) ? String(track.urn) : safe(track?.id) ? String(track.id) : '';
+  };
 
   const addStyles = () => {
     if (document.querySelector('link[data-soundcloud-catalog-style]')) return;
@@ -45,7 +49,7 @@
 
     let content;
     if (tracks.length) {
-      content = `<div class="sc-current-table-wrap"><table><thead><tr><th>TRACK</th><th>VISIBILITY</th><th>PLAYS</th><th>LIKES</th></tr></thead><tbody>${tracks.slice(0, 5).map(track => `<tr><td><strong>${esc(track.title || 'Untitled track')}</strong></td><td>${esc(track.sharing || 'Unknown')}</td><td>${formatNumber(track.playback_count)}</td><td>${formatNumber(likesFor(track))}</td></tr>`).join('')}</tbody></table></div>`;
+      content = `<div class="sc-current-table-wrap"><table><thead><tr><th>TRACK</th><th>VISIBILITY</th><th>PLAYS</th><th>LIKES</th><th>LISTEN</th></tr></thead><tbody>${tracks.slice(0, 5).map(track => { const id = previewId(track); const playable = connected && track.streamable === true && !!id; return `<tr><td><strong>${esc(track.title || 'Untitled track')}</strong></td><td>${esc(track.sharing || 'Unknown')}</td><td>${formatNumber(track.playback_count)}</td><td>${formatNumber(likesFor(track))}</td><td>${playable ? `<button type="button" class="sc-preview-button" data-action="play-soundcloud-track" data-id="${esc(id)}" aria-label="Play preview of ${esc(track.title || 'untitled track')}">Play</button>` : `<span class="sc-preview-unavailable" title="SoundCloud did not mark this track previewable in the current synced catalog">Preview unavailable</span>`}</td></tr>`; }).join('')}</tbody></table></div>`;
     } else if (connected) {
       content = '<p class="sc-current-empty">No tracks were found in the synced catalog.</p>';
     } else {
