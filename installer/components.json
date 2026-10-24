@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "managerName": "SC-DS Installation Manager",
+  "desktopApp": "Soundcloud Desktop",
+  "desktopVersion": "1.0.0",
+  "items": [
+    {
+      "id": "soundcloud-activity-feed",
+      "category": "soundcloud-supported",
+      "label": "Activity feed",
+      "summary": "On-demand and read-only.",
+      "name": "Recent SoundCloud activity",
+      "details": "On-demand, read-only feed.",
+      "source": "SoundCloud public API: GET /me/feed"
+    },
+    {
+      "id": "soundcloud-comments",
+      "category": "soundcloud-supported",
+      "label": "Comments review",
+      "summary": "Loads comments only for a track you select.",
+      "name": "Track comments review",
+      "details": "Loads comments only for a track you select.",
+      "source": "SoundCloud public API: GET /tracks/{track_urn}/comments"
+    },
+    {
+      "id": "followed-artists-tracks",
+      "category": "soundcloud-supported",
+      "label": "Followed artists' tracks",
+      "summary": "On-demand snapshot.",
+      "name": "Recent tracks from followed artists",
+      "details": "On-demand recent snapshot.",
+      "source": "SoundCloud public API: GET /me/followings/tracks"
+    },
+    {
+      "id": "soundcloud-catalog-and-uploads",
+      "category": "soundcloud-supported",
+      "label": "Catalog sync/uploads",
+      "summary": "Uses your SoundCloud app credentials.",
+      "name": "Catalog sync and direct uploads",
+      "details": "Uses your own registered SoundCloud app credentials.",
+      "source": "Documented SoundCloud user, track, and upload resources"
+    },
+    {
+      "id": "snapshot-milestones-csv",
+      "category": "soundcloud-supported",
+      "label": "Metrics, milestones, CSV",
+      "summary": "Saved snapshots, not live analytics.",
+      "name": "Sync-based metrics, milestones, and CSV digest",
+      "details": "Uses saved sync snapshots; not live analytics.",
+      "source": "Documented SoundCloud profile and catalog fields"
+    },
+    {
+      "id": "team-messages",
+      "category": "soundcloud-unavailable",
+      "label": "Team inbox/messages",
+      "summary": "No public API inbox resource.",
+      "name": "SoundCloud Team announcements and private messages",
+      "details": "No public API inbox or private-message resource is documented.",
+      "source": "SoundCloud public API reference",
+      "installAction": null
+    },
+    {
+      "id": "processing-state",
+      "category": "soundcloud-unavailable",
+      "label": "Processing status",
+      "summary": "Public Track schema has no state field.",
+      "name": "Remote track processing status",
+      "details": "No processing-state field appears in the public Track schema.",
+      "source": "SoundCloud public API Track schema",
+      "installAction": null
+    },
+    {
+      "id": "electron-runtime",
+      "category": "app-bundled",
+      "label": "Electron 44.3.0",
+      "summary": "Chromium and Node.js bundled.",
+      "name": "Electron, Chromium, and Node.js runtime",
+      "details": "Bundled with the app; no separate Node.js or browser engine install is needed.",
+      "version": "44.3.0"
+    },
+    {
+      "id": "native-os-services",
+      "category": "app-bundled",
+      "label": "Windows services",
+      "summary": "DPAPI, network, notifications, dialogs; no .NET, WebView2, or VC++ runtime.",
+      "name": "Windows DPAPI, networking, notifications, and file dialogs",
+      "details": "Provided by Windows; no separate .NET, WebView2, or Visual C++ package is required."
+    },
+    {
+      "id": "windows-baseline",
+      "category": "os-required",
+      "label": "Windows 10/11 x64",
+      "summary": "Required. Older PCs get Windows Update and retry guidance.",
+      "name": "64-bit Windows 10 or 11",
+      "details": "Required. Setup checks before installing and offers Windows Update on older systems."
+    },
+    {
+      "id": "internet-browser",
+      "category": "service-required",
+      "label": "Internet and default browser",
+      "summary": "For online features and sign-in; not needed to install or open the app.",
+      "name": "Internet and a default browser for SoundCloud features",
+      "details": "Used for SoundCloud and GitHub. Windows opens your default browser for sign-in."
+    }
+  ],
+  "futureItems": []
+}

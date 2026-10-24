@@ -1,6 +1,6 @@
 # SC Artist / Soundcloud Desktop User Guide
 
-**For version 0.2.9 on Windows**
+**For version 1.0.0 on Windows**
 
 This guide covers first-time setup, connecting SoundCloud, finding your current SoundCloud tracks, preparing uploads, and organizing releases. Your local music library and your online SoundCloud catalog are separate views.
 
@@ -138,7 +138,7 @@ The **SoundCloud access & quotas** panel shows the active account's reported OAu
 
 In **Settings**, select **Check GitHub for updates** when you want to check the latest stable release. The installed 64-bit Windows build can download the official NSIS setup file and verify its SHA-256 digest against GitHub's release metadata. After verification, setup opens visibly only after you confirm; the app does not install it silently. This check does not verify an Authenticode publisher signature, so Windows may report an unknown publisher for the unsigned installer.
 
-Portable builds can check the stable release and open its validated official GitHub page, but cannot replace themselves in place. Download the portable build and replace the existing executable manually. Update checks are user initiated; there is no background polling or automatic download.
+The 1.0.0 release is installed through SC-DS Installation Manager. Update checks are user initiated; there is no background polling or automatic download. Setup opens visibly for review and requires the current consent record before installing an update.
 
 ## Common issues
 
@@ -161,7 +161,8 @@ Portable builds can check the stable release and open its validated official Git
 
 ## Related documentation
 
-- [Version 0.3.0 release notes](RELEASE-0.3.0.md)
+- [Version 1.0.0 release notes](RELEASE-1.0.0.md)
+- [Windows installer and runtime requirements](WINDOWS-INSTALLER.md)
 - [API-supported UX plan](PLAN-API-BACKED-UX-0.3.0.md)
 - [Version 0.2.7 release notes](RELEASE-0.2.7.md)
 - [Version 0.2.8 backend coverage and limits](RELEASE-0.2.8.md)

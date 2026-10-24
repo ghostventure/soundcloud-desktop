@@ -1,15 +1,17 @@
 {
   "name": "soundcloud-desktop",
   "productName": "Soundcloud Desktop",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "An independent Windows workspace for SoundCloud artists",
-  "author": "Soundcloud Desktop",
+  "author": "Black Lion Studios",
   "private": true,
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
     "test": "node tests/smoke.cjs",
-    "dist": "electron-builder --win nsis portable --x64"
+    "catalog:build": "node scripts/generate-installer-catalog.cjs",
+    "dist": "npm run catalog:build && electron-builder --win nsis --x64",
+    "dist:installer": "npm run catalog:build && electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "44.3.0",
@@ -19,6 +21,7 @@
   "build": {
     "appId": "com.soundclouddesktop.artist",
     "productName": "Soundcloud Desktop",
+    "asar": true,
     "files": [
       "main.cjs",
       "preload.cjs",
@@ -35,18 +38,19 @@
       "icon": "assets/icon.ico",
       "signExecutable": false,
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ]
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
       "allowToChangeInstallationDirectory": true,
+      "createStartMenuShortcut": true,
       "createDesktopShortcut": true,
-      "artifactName": "Soundcloud Desktop-Setup-${version}.${ext}"
-    },
-    "portable": {
-      "artifactName": "Soundcloud Desktop-Portable-${version}.${ext}"
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "SC-DS Installation Manager-Setup-${version}.${ext}",
+      "include": "build/installer.nsh"
     },
     "electronFuses": {
       "runAsNode": false,

@@ -225,7 +225,8 @@ async function requestGitHubRelease(signal){
 function selectUpdateInstaller(release,releaseVersion){
  const matching=release.assets.filter(asset=>{
   if(!plainObject(asset)||asset.state!=='uploaded'||typeof asset.name!=='string')return false;
-  const match=asset.name.match(/^soundcloud[ .]desktop[ .-]+setup[ .-]+v?((?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5}))\.exe$/i);
+  const match=asset.name.match(/^SC-DS Installation Manager-Setup-((?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5}))\.exe$/i)
+   ||asset.name.match(/^soundcloud[ .]desktop[ .-]+setup[ .-]+v?((?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5}))\.exe$/i);
   const version=match&&parsedUpdateVersion(match[1]);
   return !!version&&compareUpdateVersions(version,releaseVersion)===0;
  });

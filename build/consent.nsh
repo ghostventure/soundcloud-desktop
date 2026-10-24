@@ -1,10 +1,11 @@
 !include "nsDialogs.nsh"
 !include "LogicLib.nsh"
+!ifndef BUILD_UNINSTALLER
 
 ; Include this file from build/installer.nsh, then add:
 ; Page custom SCManagerConsentPage SCManagerConsentLeave
 ; immediately after the generated catalog page and before MUI_PAGE_INSTFILES.
-!define SC_MANAGER_CONSENT_VERSION "1"
+!define SC_MANAGER_CONSENT_VERSION "1.0.0"
 !define SC_MANAGER_CONSENT_KEY "Software\SC-DS\InstallationManager\Consent"
 
 Var SCMConsentDialog
@@ -27,7 +28,11 @@ Var SCMConsentMillis
 
 Function SCManagerConsentPage
   ReadRegStr $SCMConsentExisting HKCU "${SC_MANAGER_CONSENT_KEY}" "Version"
+  ReadRegStr $SCMConsentVerifyTimestamp HKCU "${SC_MANAGER_CONSENT_KEY}" "AcceptedAtLocal"
+  ReadRegStr $SCMConsentVerifyCategories HKCU "${SC_MANAGER_CONSENT_KEY}" "Categories"
   ${If} $SCMConsentExisting == "${SC_MANAGER_CONSENT_VERSION}"
+  ${AndIf} $SCMConsentVerifyTimestamp != ""
+  ${AndIf} $SCMConsentVerifyCategories == "copyright-rights,legal-privacy,soundcloud-third-party-services,windows-runtime,service-network-use,soundcloud-supported-functions"
     Abort
   ${EndIf}
 
@@ -39,26 +44,17 @@ Function SCManagerConsentPage
 
   ${NSD_CreateLabel} 0 0 100% 30u "Before installing, please read and confirm these important details."
   Pop $0
-  nsDialogs::CreateControl "EDIT" "${WS_CHILD}|${WS_VISIBLE}|${WS_VSCROLL}|${ES_MULTILINE}|${ES_READONLY}|${ES_AUTOVSCROLL}|${WS_BORDER}" "${WS_EX_CLIENTEDGE}" 0 34u 100% 202u ""
+  nsDialogs::CreateControl "EDIT" "${WS_CHILD}|${WS_VISIBLE}|${WS_VSCROLL}|${ES_MULTILINE}|${ES_READONLY}|${ES_AUTOVSCROLL}" "${WS_EX_CLIENTEDGE}" 0 34u 100% 202u ""
   Pop $SCMConsentText
-  ${NSD_SetText} $SCMConsentText "ABOUT THIS APP$$
-Soundcloud Desktop is an independent app and is not endorsed by SoundCloud.$$
-$$
-YOUR MUSIC AND COPYRIGHT$$
-Before you upload, you confirm that you own or have permission and licenses for the content you choose to send. You remain responsible for your content and for responding appropriately to copyright or other claims. This app does not provide legal advice or legal protection.$$
-$$
-SOUNDCLOUD AND OTHER SERVICES$$
-Your SoundCloud account, authorization, and API use are governed by SoundCloud's terms. When you choose SoundCloud or GitHub features, this app connects to those services. Sign-in opens your default browser. Review SoundCloud's Terms of Use and API Terms below.$$
-$$
-YOUR DATA AND WINDOWS COMPONENTS$$
-Your workspace and account credentials are stored locally in your Windows user profile; credentials are protected with Windows DPAPI. Consent is also saved locally in this Windows account and is not sent to SoundCloud or the app publisher. Optional support export is user initiated.$$
-$$
-The setup contains Soundcloud Desktop and its bundled third-party Electron, Chromium, and Node.js runtime; these components install with the app and do not launch separate installers. It does not separately install .NET, WebView2, Visual C++, or other runtime packages. Windows provides system services such as credential protection, networking, and file dialogs."
+  ${NSD_SetText} $SCMConsentText "INDEPENDENT APP$\r$\nBlack Lion Studios supports SoundCloud. SC-DS is currently an independent product and is not affiliated with SoundCloud. This relationship status may change. SoundCloud remains its own platform and service.$\r$\n$\r$\nDMCA AND COPYRIGHT$\r$\nUpload only content you own or have permission and licenses to use. You are responsible for your content and for responding to DMCA/copyright notices or claims. This app gives no legal advice or protection.$\r$\n$\r$\nSOUNDCLOUD AND OTHER SERVICES$\r$\nSupported features use public API data: activity, selected-track comments, followed-artist tracks, catalog sync, uploads, and saved metrics. Team messages and remote processing status are unavailable in SoundCloud's public API. SoundCloud terms govern authorization and API use. GitHub provides update checks; sign-in opens your default browser. Review the SoundCloud terms using the buttons below.$\r$\n$\r$\nPRIVACY AND COMPONENTS$\r$\nWorkspace data and an Electron safeStorage-encrypted credential file stay in your Windows profile; Windows DPAPI protects the file. Consent is saved locally and not transmitted. Support export is optional and user initiated. Setup bundles Electron, Chromium, and Node.js. Windows supplies networking and file dialogs. No separate .NET, WebView2, or Visual C++ installer is needed."
 
-  ${NSD_CreateButton} 0 242u 174u 20u "Open SoundCloud Terms of Use"
+  ${NSD_CreateButton} 0 242u 112u 20u "Privacy & licenses"
+  Pop $0
+  ${NSD_OnClick} $0 SCManagerOpenPrivacy
+  ${NSD_CreateButton} 120u 242u 112u 20u "SoundCloud terms"
   Pop $0
   ${NSD_OnClick} $0 SCManagerOpenTerms
-  ${NSD_CreateButton} 180u 242u 174u 20u "Open SoundCloud API Terms"
+  ${NSD_CreateButton} 240u 242u 112u 20u "API terms"
   Pop $0
   ${NSD_OnClick} $0 SCManagerOpenApiTerms
 
@@ -83,6 +79,7 @@ Function SCManagerConsentLeave
   IntFmt $SCMConsentPartYear "%04u" $SCMConsentPartYear
   IntFmt $SCMConsentPartMonth "%02u" $SCMConsentPartMonth
   IntFmt $SCMConsentPartDay "%02u" $SCMConsentPartDay
+  IntFmt $SCMConsentPartDayOfWeek "%u" $SCMConsentPartDayOfWeek
   IntFmt $SCMConsentPartHour "%02u" $SCMConsentPartHour
   IntFmt $SCMConsentPartMinute "%02u" $SCMConsentPartMinute
   IntFmt $SCMConsentPartSecond "%02u" $SCMConsentPartSecond
@@ -90,13 +87,13 @@ Function SCManagerConsentLeave
 
   WriteRegStr HKCU "${SC_MANAGER_CONSENT_KEY}" "Version" "${SC_MANAGER_CONSENT_VERSION}"
   WriteRegStr HKCU "${SC_MANAGER_CONSENT_KEY}" "AcceptedAtLocal" "$SCMConsentStamp"
-  WriteRegStr HKCU "${SC_MANAGER_CONSENT_KEY}" "Categories" "copyright-rights,legal-privacy,soundcloud-third-party-services,windows-runtime,service-network-use"
+  WriteRegStr HKCU "${SC_MANAGER_CONSENT_KEY}" "Categories" "copyright-rights,legal-privacy,soundcloud-third-party-services,windows-runtime,service-network-use,soundcloud-supported-functions"
   ReadRegStr $SCMConsentExisting HKCU "${SC_MANAGER_CONSENT_KEY}" "Version"
   ReadRegStr $SCMConsentVerifyTimestamp HKCU "${SC_MANAGER_CONSENT_KEY}" "AcceptedAtLocal"
   ReadRegStr $SCMConsentVerifyCategories HKCU "${SC_MANAGER_CONSENT_KEY}" "Categories"
   ${If} $SCMConsentExisting != "${SC_MANAGER_CONSENT_VERSION}"
   ${OrIf} $SCMConsentVerifyTimestamp != $SCMConsentStamp
-  ${OrIf} $SCMConsentVerifyCategories != "copyright-rights,legal-privacy,soundcloud-third-party-services,windows-runtime,service-network-use"
+  ${OrIf} $SCMConsentVerifyCategories != "copyright-rights,legal-privacy,soundcloud-third-party-services,windows-runtime,service-network-use,soundcloud-supported-functions"
     DeleteRegValue HKCU "${SC_MANAGER_CONSENT_KEY}" "Version"
     MessageBox MB_ICONSTOP "Setup could not save your consent on this Windows account. No app files have been installed."
     Abort
@@ -108,6 +105,11 @@ Function SCManagerOpenTerms
   ExecShell "open" "https://soundcloud.com/terms-of-use"
 FunctionEnd
 
+Function SCManagerOpenPrivacy
+  ExecShell "open" "https://github.com/ghostventure/soundcloud-desktop/blob/main/docs/PRIVACY-AND-LICENSES.md"
+FunctionEnd
+
 Function SCManagerOpenApiTerms
   ExecShell "open" "https://developers.soundcloud.com/docs/api/terms-of-use"
 FunctionEnd
+!endif

@@ -1,10 +1,12 @@
 # Soundcloud Desktop
 
+Created and published by Black Lion Studios. Black Lion Studios supports SoundCloud; SC-DS is currently an independent product and is not affiliated with SoundCloud. This relationship status may change. SoundCloud owns its platform, API, and marks; third-party software remains under its own licenses. See [privacy and third-party licenses](docs/PRIVACY-AND-LICENSES.md).
+
 Native Windows artist uploader and workspace. Not affiliated with or endorsed by SoundCloud.
 
 ## Current project version
 
-The current source and package metadata are version 0.3.0. This local build adds API-backed SoundCloud activity and comments review, plus sync-based performance milestones and CSV export. The local installer is built from this source; GitHub release availability is tracked separately. See the [0.3.0 release notes](docs/RELEASE-0.3.0.md), [API-supported UX plan](docs/PLAN-API-BACKED-UX-0.3.0.md), and [SC Artist user guide](docs/USER-GUIDE.md).
+The current source and package metadata are version 1.0.0. It includes API-backed SoundCloud activity, comments review, followed-artist recent tracks, sync-based performance milestones, and CSV export. The installer is named **SC-DS Installation Manager**; GitHub release availability is tracked separately. See the [1.0.0 release notes](docs/RELEASE-1.0.0.md), [Windows installer and runtime requirements](docs/WINDOWS-INSTALLER.md), and [SC Artist user guide](docs/USER-GUIDE.md).
 
 Version 0.2.7 added catalog filters and comparison tools, track review and detail tools, workspace accessibility and navigation options, and encrypted multi-account switching. Backend catalog snapshots and workspace saves also use less memory and disk space. See [0.2.7 release notes](docs/RELEASE-0.2.7.md).
 
@@ -16,7 +18,7 @@ The workspace navigation groups related areas so the main artist tasks are easie
 
 ## Run and build
 
-The app is an Electron desktop application targeting 64-bit Windows. See [native/START-HERE.txt](native/START-HERE.txt) for the existing first-run notes; package/release status is listed in the version-specific notes.
+The app is an Electron desktop application targeting 64-bit Windows 10 and 11. Its setup is self-contained and installs the app by default; no separate runtime package or manual component selection is required. See [Windows installer and runtime requirements](docs/WINDOWS-INSTALLER.md) for package contents and build commands.
 
 ## Included
 
@@ -36,7 +38,7 @@ The app is an Electron desktop application targeting 64-bit Windows. See [native
 - Local upload response tracking, artwork crop preview, and audio file details; update scheduling, crop transforms, SoundCloud click analytics, and remote processing history are not provided by the current API.
 - Bounded SoundCloud catalog sync with encrypted progress checkpoints, freshness metadata, and local absence tombstones; interrupted syncs preserve the last completed snapshot but do not resume.
 - Upload attempt recovery with local receipt journaling and a duplicate-attempt guard. An uncertain result must be checked in SoundCloud before the local review item is cleared; SoundCloud does not provide a remote idempotency guarantee here.
-- User-initiated GitHub stable-release checks. Installed Windows builds can download a bounded NSIS installer and compare its SHA-256 digest to GitHub release metadata before opening setup visibly for review; portable builds can open the official release page but must be replaced manually.
+- User-initiated GitHub stable-release checks. Installed Windows builds can download a bounded NSIS installer and compare its SHA-256 digest to GitHub release metadata before opening setup visibly for review. Version 1.0.0 ships through the SC-DS Installation Manager so first use includes compatibility checks and required consent.
 - Content-hash duplicate checks for newly imported local audio, checksummed workspace backups with legacy JSON restore support, and bounded local workspace recovery points.
 - Per-account identity binding and persisted cooldowns, upload-time audio signature/file identity checks, and Settings display of reported OAuth scopes plus observed per-route quota headers.
 - Local daily follower and track-count history captured during successful catalog syncs; this is not SoundCloud time-series analytics.
@@ -46,7 +48,7 @@ The app is an Electron desktop application targeting 64-bit Windows. See [native
 - Responsive 100-row library/catalog pages, asynchronous serialized workspace saves, and faster audio/media file lookups; see [performance notes](docs/PERFORMANCE-0.2.1.md).
 - SoundCloud catalog snapshots keep 2,000 description characters per track, normalize pages as they arrive, and remain sequentially paginated; internal workspace JSON is compact while exported backups stay readable.
 
-The Windows installer is unsigned, so Windows may show an unknown publisher warning. Update verification checks installer bytes against GitHub's release SHA-256 metadata, not an Authenticode publisher signature. Setup opens visibly for review and never installs silently.
+The Windows installer is unsigned, so Windows may show an unknown publisher warning. Update verification checks installer bytes against GitHub's release SHA-256 metadata, not an Authenticode publisher signature. Setup opens visibly for review and never installs silently. Uninstall removes the program but preserves the workspace and credential files in the user's app-data folder.
 
 After browser authorization, the localhost callback is detected by the app, the returned account is verified, and encrypted refresh tokens enable automatic sign-in on later launches. Browser cookies and passwords are never imported. For automatic local library import, put supported audio in `Music\Soundcloud Desktop Inbox`; the startup scan references files in place and does not move or upload them.
 
