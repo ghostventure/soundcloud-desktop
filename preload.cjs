@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('studio',{
   theme:value=>ipcRenderer.invoke('theme:set',value), minimize:()=>ipcRenderer.invoke('window:tray'),
   connection:()=>ipcRenderer.invoke('account:status'), credentials:(id,secret)=>ipcRenderer.invoke('account:credentials',id,secret),
   accountAdd:label=>ipcRenderer.invoke('account:add',label), accountSwitch:id=>ipcRenderer.invoke('account:switchTo',id), accountRemove:id=>ipcRenderer.invoke('account:remove',id),
-  authorize:()=>ipcRenderer.invoke('account:authorize'), sync:()=>ipcRenderer.invoke('account:sync'), activityFeed:()=>ipcRenderer.invoke('account:activity-feed'), disconnect:()=>ipcRenderer.invoke('account:disconnect'),
+  authorize:()=>ipcRenderer.invoke('account:authorize'), sync:()=>ipcRenderer.invoke('account:sync'), activityFeed:()=>ipcRenderer.invoke('account:activity-feed'), comments:trackId=>ipcRenderer.invoke('account:comments',trackId), disconnect:()=>ipcRenderer.invoke('account:disconnect'),
   upload:(id,metadata)=>ipcRenderer.invoke('audio:upload',id,metadata), uploadJobs:()=>ipcRenderer.invoke('audio:upload-jobs'), acknowledgeUpload:id=>ipcRenderer.invoke('audio:upload-acknowledge',id),
   backendHealth:()=>ipcRenderer.invoke('backend:health'), exportSupportBundle:()=>ipcRenderer.invoke('diagnostics:export'),
   checkUpdates:()=>ipcRenderer.invoke('update:check'), downloadUpdate:version=>ipcRenderer.invoke('update:download',version),

@@ -108,6 +108,7 @@ const ipcContracts={
  'account:authorize':{args:[],limit:3,window:60000},
  'account:sync':{args:[],limit:4,window:60000},
  'account:activity-feed':{args:[],limit:4,window:60000},
+ 'account:comments':{args:[stringArg('SoundCloud track ID',160,{min:1,pattern:/^(?:soundcloud:tracks:\d{1,128}|[A-Za-z0-9_-]{1,128})$/})],limit:12,window:60000},
  'account:disconnect':{args:[],limit:10,window:60000},
  'account:add':{args:[stringArg('account label',80)],limit:10,window:60000},
  'account:switchTo':{args:[idArg('account ID')],limit:30,window:10000},
@@ -591,6 +592,10 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    if(uploadController&&['add','switchTo','remove'].includes(action))throw Error('Finish the current upload before changing SoundCloud accounts.');
    try{const result=await account[action](...args);if(action==='sync')notifyHidden('sync-complete');return result;}
    catch(error){if(action==='sync')notifyHidden('sync-failed');throw error;}
+  });
+  handler('account:comments',trackId=>{
+   if(!account?.status().connected)throw Error('Connect your SoundCloud account before reviewing comments.');
+   return account.comments(trackId);
   });
   handler('audio:cancel-upload',()=>{uploadController?.abort();});
   handler('audio:upload-jobs',()=>uploadJournal?.list()||[]);

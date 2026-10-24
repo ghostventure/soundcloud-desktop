@@ -293,6 +293,7 @@ function validateActivityPaginationHref(href) {
   }
   for (const [key, item] of target.searchParams) {
     if (key === 'limit' && /^(?:[1-9]\d{0,2})$/.test(item) && Number(item) <= 200) continue;
+    if (key === 'page_size' && /^(?:[1-9]\d{0,2})$/.test(item) && Number(item) <= 200) continue;
     if (key === 'cursor' && item.length > 0 && item.length <= 1024 && !/[\r\n]/.test(item)) continue;
     if (key === 'linked_partitioning' && item === 'true') continue;
     throw apiError('SoundCloud returned an unsupported activity pagination link.', { code: 'SC_INVALID_ACTIVITY_PAGINATION' });
@@ -1257,6 +1258,36 @@ function createConnection(dir) {
     };
   }
 
+  async function comments(trackIdentifier) {
+    const record = active();
+    if (!record?.snapshot || !Array.isArray(record.snapshot.tracks)) throw Error('Sync your SoundCloud catalog before reviewing comments.');
+    if (typeof trackIdentifier !== 'string' || trackIdentifier.length > 160) throw Error('Choose a track from your synced SoundCloud catalog.');
+    const track = record.snapshot.tracks.find(item => String(item.id) === trackIdentifier || String(item.urn || '') === trackIdentifier || String(item.legacy_id || '') === trackIdentifier);
+    const urn = trackKey(track);
+    if (!track || !urn) throw Error('That track is not in the active account’s synced catalog. Sync the catalog and try again.');
+    const deadlineAt = Date.now() + 60000;
+    const target = `/tracks/${encodeURIComponent(urn)}/comments?linked_partitioning=true&limit=100`;
+    const data = await request(target, record, { deadlineAt });
+    const { collection, nextHref } = parseCatalogPage(data);
+    if (collection.length > 100) throw apiError('SoundCloud returned more comments than the requested page limit.', { code: 'SC_COMMENTS_PAGE_TOO_LARGE' });
+    const comments = collection.map(item => {
+      if (!isPlainObject(item) || typeof item.body !== 'string' || item.body.length > 5000) return null;
+      const createdAt = typeof item.created_at === 'string' && item.created_at.length <= 64 && Number.isFinite(Date.parse(item.created_at)) ? new Date(item.created_at).toISOString() : '';
+      const timestamp = typeof item.timestamp === 'number' && Number.isFinite(item.timestamp) && item.timestamp >= 0 ? item.timestamp :
+        typeof item.timestamp === 'string' && /^\d{1,12}(?:\.\d{1,3})?$/.test(item.timestamp) ? Number(item.timestamp) : null;
+      const userName = typeof item.user?.username === 'string' ? item.user.username.slice(0, 256) : 'SoundCloud listener';
+      const id = typeof item.id === 'string' && item.id.length <= 128 ? item.id : Number.isSafeInteger(item.id) && item.id >= 0 ? String(item.id) : '';
+      return { id, body: item.body, createdAt, timestamp: Number.isFinite(timestamp) ? timestamp : null, userName };
+    }).filter(Boolean);
+    return {
+      accountId: record.id,
+      track: { id: String(track.id), title: track.title, url: track.permalink_url || '' },
+      comments,
+      fetchedAt: new Date().toISOString(),
+      moreAvailable: !!nextHref
+    };
+  }
+
   async function preview(trackId, range = '', authRetried = false, deadlineAt = Date.now() + 60000) {
     const record = active();
     if (!record?.accessToken) throw Error('Connect your SoundCloud account to preview this track.');
@@ -1473,6 +1504,7 @@ function createConnection(dir) {
     health,
     sync,
     activityFeed,
+    comments,
     credentials,
     add,
     switchTo,

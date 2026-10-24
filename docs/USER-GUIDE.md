@@ -165,3 +165,9 @@ Portable builds can check the stable release and open its validated official Git
 - [Startup and first-run profile](STARTUP-0.2.4.md)
 - [Artist profile details](ARTIST-PROFILE-0.2.3.md)
 - [Project README](../README.md)
+
+## SoundCloud listener comments
+
+Open **SoundCloud → Comments**, choose a track from the active account’s last synced SoundCloud catalog, then select **Load comments**. Loading is user initiated; opening the page does not request comments. Each click sends one documented `GET /tracks/{track_urn}/comments` request with `linked_partitioning=true&limit=100`. The app displays up to 100 results for that request and does not automatically fetch additional pages. Search matches listener names and comment text; the All, Timed, and General filters distinguish comments with or without an API timestamp. When SoundCloud returns a creation date or track position, the app displays it. Use **Open track** to visit the track on SoundCloud.
+
+This feature only allows tracks in the active account’s synced `/me/tracks` catalog. It does not fetch comments across the catalog, post or edit comments, scrape SoundCloud pages, or provide SoundCloud sentiment analysis. The OpenAPI schema allows a `limit` up to 200; this app deliberately requests 100 per action. SoundCloud publishes a general default budget of about 100 API requests per application per minute, with live limits reported in response headers; it does not publish a comments-specific quota in its rate-limit guide. The app also limits the comments IPC action to 12 calls per minute from this window. If SoundCloud responds with rate limiting, wait for the service’s retry interval before trying again.
