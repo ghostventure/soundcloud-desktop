@@ -1,7 +1,7 @@
 {
   "name": "soundcloud-desktop",
   "productName": "Soundcloud Desktop",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "An independent Windows workspace for SoundCloud artists",
   "author": "Soundcloud Desktop",
   "private": true,

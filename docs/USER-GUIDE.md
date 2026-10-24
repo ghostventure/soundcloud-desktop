@@ -1,6 +1,6 @@
 # SC Artist / Soundcloud Desktop User Guide
 
-**For version 0.2.8 on Windows**
+**For version 0.2.9 on Windows**
 
 This guide covers first-time setup, connecting SoundCloud, finding your current SoundCloud tracks, preparing uploads, and organizing releases. Your local music library and your online SoundCloud catalog are separate views.
 
@@ -46,7 +46,7 @@ After a successful connection and catalog sync:
 - The **SoundCloud** page shows the synced catalog in pages of up to 100 tracks, along with follower and catalog totals.
 - Open **Artist Insights** for SoundCloud's detailed time-based analytics.
 
-The preview and catalog are snapshots from the last sync, not a live feed. Catalog play and like totals are summed from the tracks returned by that sync. Confirm that you connected the intended SoundCloud account if the figures or track list do not look right.
+The preview and catalog are snapshots from the last sync, not a live feed. Catalog play and like totals are summed from the tracks returned by that sync. The account profile also keeps a local daily history of follower and track counts when a complete sync succeeds, for up to 366 days. It does not provide time-series play or like analytics. Confirm that you connected the intended SoundCloud account if the figures or track list do not look right.
 
 ### Catalog controls and sync history
 
@@ -66,7 +66,7 @@ The activity history records a limited number of recent local actions. One-step 
 
 ### Multiple SoundCloud accounts
 
-After saving your SoundCloud app credentials, you can add and switch between saved account logins from the SoundCloud page. Account tokens and snapshots are kept separately and encrypted for your Windows account. Finish any upload, sync, or authorization operation before switching or removing an account. The same saved app credentials are used for the accounts in this app.
+After saving your SoundCloud app credentials, you can add and switch between saved account logins from the SoundCloud page. Each saved account is bound to its verified SoundCloud identity; the app checks that identity when connecting and syncing. Account tokens, OAuth scopes, and catalog snapshots are kept separately and encrypted for your Windows account. Finish any upload, sync, or authorization operation before switching or removing an account. The same saved app credentials are used for the accounts in this app.
 
 ## Import and organize music on this PC
 
@@ -77,7 +77,7 @@ The **Music library** contains local audio files that you add to the workspace. 
 3. Search by title, genre, or notes. Use the status filters to find drafts, mixes, masters, or released tracks.
 4. Play a track, edit its workspace metadata, or reveal its original file in Explorer.
 
-Importing adds a reference to the original file; it does not move, upload, or duplicate the audio. Playback depends on the codec supported by the app.
+Importing adds a reference to the original file; it does not move, upload, or duplicate the audio. New imports are hashed and compared with cached hashes to skip exact-byte duplicates. Existing library records without a cached hash are not read and hashed in bulk, so they are not deduplicated until re-imported or otherwise given a digest. This is exact file-content matching, not audio fingerprinting: re-encoded copies can differ. Playback depends on the codec supported by the app.
 
 The **Upload desk** adds a library organizer for sorting and bulk metadata updates, upload presets, reusable description/credits templates, a draft queue, and local reminders. A reminder is only for your own planning; it does not schedule a SoundCloud publication.
 
@@ -110,17 +110,29 @@ Use **Promotion** to save campaign drafts, captions, channels, dates, contacts, 
 
 ## Save and restore your workspace
 
-The workspace is stored for your Windows user. Use **Settings → Export workspace backup** to save profile and workspace metadata. Backups include audio file paths, not the audio files themselves; copy audio and artwork separately when moving to another PC. Credentials and SoundCloud tokens are excluded.
+The workspace is stored for your Windows user. Use **Settings → Export workspace backup** to save profile and workspace metadata. New JSON backups include a SHA-256 checksum to detect accidental changes; the checksum does not prove who created the file and is not a signature. Older raw JSON backups remain supported, but have no checksum and are still structurally validated. Backups include audio file paths, not the audio files themselves; copy audio and artwork separately when moving to another PC. Credentials and SoundCloud tokens are excluded. Backup files are limited to 32 MiB.
 
 **Restore a backup** replaces the current workspace after confirmation. Before replacing it, the app creates a copy of the current workspace metadata.
 
-The restore preview shows the records that will be added, changed, or removed. The selected backup is capped at 32 MiB before it is read. The preview and pre-restore copy are local safeguards; they do not include audio/artwork bytes or SoundCloud credentials.
+The restore preview shows the records that will be added, changed, or removed. Before replacing the workspace, the app saves a local copy of the current metadata. The preview and pre-restore copy are local safeguards; they do not include audio/artwork bytes or SoundCloud credentials.
+
+### Automatic workspace recovery
+
+Use **Settings → Review recovery points** to inspect available local recovery candidates by timestamp, profile name, and record counts. Restoring requires a confirmation preview and preserves the current workspace copy first. The app keeps up to eight automatic history files plus the separate previous-workspace copy; it only creates a new history point at most once every 30 minutes, caps stored recovery data at 256 MiB, and limits candidate enumeration to 256 MiB. Recovery points contain workspace metadata and file references only. Audio and artwork remain in their original locations and are not embedded.
 
 ### Health checks and support bundle
 
 In **Settings → System health & support**, select **Refresh system health** to check workspace readability/writability and credential-vault/connection status. The view may also show a sanitized catalog sync checkpoint. These checks report current access and do not change Windows folder permissions.
 
 Select **Export support bundle** to save a JSON file containing app/system versions, projected health checks, and recent sanitized event categories/codes. It excludes workspace contents, credentials, account identifiers, local paths, and raw error messages. Review the file before sharing it.
+
+The **SoundCloud access & quotas** panel shows the active account's reported OAuth scope string and any recent per-route quota observations returned in SoundCloud response headers. The observations may include limit, remaining requests, reset time, and observation time. They vary by endpoint and can expire; the app does not set or display invented local quotas. See SoundCloud's [API guide](https://developers.soundcloud.com/docs/api/guide) for OAuth responses and [rate-limit reference](https://developers.soundcloud.com/docs/api/rate-limits.html) for header semantics.
+
+### Check for app updates
+
+In **Settings**, select **Check GitHub for updates** when you want to check the latest stable release. The installed 64-bit Windows build can download the official NSIS setup file and verify its SHA-256 digest against GitHub's release metadata. After verification, setup opens visibly only after you confirm; the app does not install it silently. This check does not verify an Authenticode publisher signature, so Windows may report an unknown publisher for the unsigned installer.
+
+Portable builds can check the stable release and open its validated official GitHub page, but cannot replace themselves in place. Download the portable build and replace the existing executable manually. Update checks are user initiated; there is no background polling or automatic download.
 
 ## Common issues
 
@@ -145,6 +157,7 @@ Select **Export support bundle** to save a JSON file containing app/system versi
 
 - [Version 0.2.7 release notes](RELEASE-0.2.7.md)
 - [Version 0.2.8 backend coverage and limits](RELEASE-0.2.8.md)
+- [Version 0.2.9 backend coverage and limits](RELEASE-0.2.9.md)
 - [Version 0.2.6 release notes](RELEASE-0.2.6.md)
 - [Version 0.2.5 release notes](RELEASE-0.2.5.md)
 - [Startup and first-run profile](STARTUP-0.2.4.md)
