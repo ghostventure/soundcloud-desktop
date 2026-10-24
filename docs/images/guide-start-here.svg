@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="330" viewBox="0 0 1200 330" role="img" aria-labelledby="title desc">
+  <title id="title">SC-DS first-use path</title>
+  <desc id="desc">Four connected steps: set up your local workspace, connect SoundCloud, sync your catalog, and review your Overview.</desc>
+  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#202329"/><stop offset="1" stop-color="#121418"/></linearGradient><linearGradient id="accent" x2="1"><stop stop-color="#ff6b35"/><stop offset="1" stop-color="#ffad55"/></linearGradient></defs>
+  <rect width="1200" height="330" rx="28" fill="url(#bg)"/>
+  <text x="54" y="62" fill="#ff9857" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" letter-spacing="3">YOUR FIRST SESSION</text>
+  <text x="54" y="100" fill="#f7f7f8" font-family="Segoe UI,Arial,sans-serif" font-size="27" font-weight="700">A clear path from setup to your SoundCloud catalog</text>
+  <path d="M180 200H1010" fill="none" stroke="#454951" stroke-width="4" stroke-linecap="round"/>
+  <path d="M180 200H1010" fill="none" stroke="url(#accent)" stroke-width="2" stroke-dasharray="7 12" stroke-linecap="round"/>
+  <g font-family="Segoe UI,Arial,sans-serif" text-anchor="middle">
+    <g transform="translate(180 200)"><circle r="39" fill="#292d34" stroke="#ff8b4b" stroke-width="2"/><path d="M-13 3l10 10 20-24" fill="none" stroke="#ffd0ac" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><text y="70" fill="#fff" font-size="17" font-weight="700">Set up your</text><text y="93" fill="#fff" font-size="17" font-weight="700">workspace</text><text y="119" fill="#aeb3bc" font-size="13">Name and profile</text></g>
+    <g transform="translate(460 200)"><circle r="39" fill="#292d34" stroke="#ff8b4b" stroke-width="2"/><path d="M-16 1c8-15 24-15 32 0-8 15-24 15-32 0z" fill="none" stroke="#ffd0ac" stroke-width="3"/><circle r="5" fill="#ffd0ac"/><text y="70" fill="#fff" font-size="17" font-weight="700">Connect</text><text y="93" fill="#fff" font-size="17" font-weight="700">SoundCloud</text><text y="119" fill="#aeb3bc" font-size="13">Approve in browser</text></g>
+    <g transform="translate(740 200)"><circle r="39" fill="#292d34" stroke="#ff8b4b" stroke-width="2"/><path d="M-16-2h32M-8-12l-10 10 10 10M8-12L18-2 8 8" fill="none" stroke="#ffd0ac" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><text y="70" fill="#fff" font-size="17" font-weight="700">Sync your</text><text y="93" fill="#fff" font-size="17" font-weight="700">catalog</text><text y="119" fill="#aeb3bc" font-size="13">Load a current snapshot</text></g>
+    <g transform="translate(1020 200)"><circle r="39" fill="#292d34" stroke="#ff8b4b" stroke-width="2"/><rect x="-17" y="-15" width="34" height="29" rx="4" fill="none" stroke="#ffd0ac" stroke-width="3"/><path d="M-10 6h7l5-11 6 16 4-8h5" fill="none" stroke="#ffd0ac" stroke-width="2.5" stroke-linejoin="round"/><text y="70" fill="#fff" font-size="17" font-weight="700">Review</text><text y="93" fill="#fff" font-size="17" font-weight="700">Overview</text><text y="119" fill="#aeb3bc" font-size="13">Tracks and metrics</text></g>
+  </g>
+  <text x="54" y="304" fill="#8e949e" font-family="Segoe UI,Arial,sans-serif" font-size="12">SC-DS · Local workspace and SoundCloud data are shown in separate views</text>
+</svg>
