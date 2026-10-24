@@ -107,6 +107,7 @@ const ipcContracts={
  'update:download':{args:[stringArg('update version',32,{min:5,pattern:updateVersionPattern})],limit:2,window:60000},
  'update:cancel':{args:[],limit:10,window:10000},
  'update:install':{args:[stringArg('update version',32,{min:5,pattern:updateVersionPattern})],limit:3,window:60000},
+ 'update:open-release':{args:[stringArg('update version',32,{min:5,pattern:updateVersionPattern})],limit:5,window:60000},
  'workspace:read':{args:[],limit:120,window:10000},
  'workspace:save':{args:[workspaceArg],limit:30,window:10000},
  'audio:import':{args:[],limit:10,window:10000},
@@ -221,7 +222,8 @@ function selectUpdateInstaller(release,releaseVersion){
 async function fetchVerifiedUpdate(expectedVersion,signal){
  const currentParts=parsedUpdateVersion(app.getVersion());
  if(!currentParts)throw Error('The installed app version cannot be compared safely.');
- if(process.platform!=='win32'||process.arch!=='x64'||process.env.PORTABLE_EXECUTABLE_DIR)return {summary:{supported:false,currentVersion:app.getVersion(),available:false,reason:process.env.PORTABLE_EXECUTABLE_DIR?'In-app update installation is available for installed 64-bit Windows builds, not portable copies.':'Updates from this screen require 64-bit Windows.'},installer:null};
+ const portable=!!process.env.PORTABLE_EXECUTABLE_DIR;
+ if(process.platform!=='win32'||process.arch!=='x64')return {summary:{supported:false,currentVersion:app.getVersion(),available:false,reason:'Updates from this screen require 64-bit Windows.'},installer:null};
  let release;
  try{release=await requestGitHubRelease(signal||AbortSignal.timeout(20000));}
  catch(error){throw error;}
@@ -230,7 +232,9 @@ async function fetchVerifiedUpdate(expectedVersion,signal){
  if(!releaseParts||release.draft!==false||release.prerelease!==false||String(release.author.login).toLowerCase()!==updateRepo.owner||release.html_url!==expectedReleaseUrl)throw Error('The latest GitHub release could not be verified.');
  const latestVersion=updateVersionText(releaseParts);
  if(expectedVersion&&latestVersion!==expectedVersion)throw Error('The available update changed. Check GitHub again before downloading.');
- if(compareUpdateVersions(releaseParts,currentParts)<=0)return {summary:{supported:true,currentVersion:app.getVersion(),latestVersion,available:false},installer:null};
+ const available=compareUpdateVersions(releaseParts,currentParts)>0;
+ if(portable)return {summary:{supported:false,portable:true,currentVersion:app.getVersion(),latestVersion,available,releaseUrl:expectedReleaseUrl,reason:'Portable copies cannot be updated in place. Open the official release page to review and download the latest portable build.'},installer:null};
+ if(!available)return {summary:{supported:true,currentVersion:app.getVersion(),latestVersion,available:false},installer:null};
  const installer=selectUpdateInstaller(release,releaseParts);
  const publishedAt=typeof release.published_at==='string'&&Number.isFinite(Date.parse(release.published_at))?new Date(release.published_at).toISOString():'';
  const releaseNotes=typeof release.body==='string'?release.body.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'').slice(0,4000):'';
@@ -277,7 +281,7 @@ async function downloadGitHubUpdate(version){
  const timeout=setTimeout(()=>controller.abort('timeout'),10*60*1000);let handle=null,temp='',received=0;
  try{
   const verified=await fetchVerifiedUpdate(version,controller.signal),offer=verified.summary,installer=verified.installer;
-  if(!offer.available||offer.latestVersion!==version)throw Error('No newer verified update is available.');
+  if(!installer||!offer.available||offer.latestVersion!==version)throw Error('No newer verified installed-build update is available.');
   if(controller.signal.aborted)throw Error('Update download canceled.');
   const directory=await resolveStagingDirectory(),target=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
   const existingHash=await hashStagedInstaller(target,installer.size);
@@ -321,7 +325,7 @@ async function installGitHubUpdate(version){
  updateInstallActive=true;
  try{
  const verified=await fetchVerifiedUpdate(version),offer=verified.summary,installer=verified.installer;
- if(!offer.available||offer.latestVersion!==version)throw Error('No newer verified update is available. Check GitHub again.');
+ if(!installer||!offer.available||offer.latestVersion!==version)throw Error('No newer verified installed-build update is available. Check GitHub again.');
  const directory=await resolveStagingDirectory(),file=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
  if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer is missing or failed its SHA-256 check. Download and verify it again.');
  const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Open installer'],defaultId:0,cancelId:0,message:`Open the verified Soundcloud Desktop ${version} installer?`,detail:'The setup program will open for you to review and run. No update is installed silently; close the setup window to cancel.'});
@@ -488,6 +492,15 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   handler('update:download',version=>downloadGitHubUpdate(version));
   handler('update:cancel',()=>{if(!updateDownloadController)return false;updateDownloadController.abort('user-cancel');return true;});
   handler('update:install',version=>installGitHubUpdate(version));
+  handler('update:open-release',async version=>{
+   if(process.platform!=='win32'||process.arch!=='x64'||!process.env.PORTABLE_EXECUTABLE_DIR)throw Error('The release-page shortcut is for portable Windows builds.');
+   const {summary}=await fetchVerifiedUpdate(version);
+   const requested=parsedUpdateVersion(version),requestedVersion=requested&&updateVersionText(requested),prefix=`/${updateRepo.owner}/${updateRepo.name}/releases/tag/`;
+   let target;try{target=new URL(summary.releaseUrl);}catch{throw Error('The official release page could not be verified.');}
+   const tag=target.pathname.startsWith(prefix)?target.pathname.slice(prefix.length):'',pageParts=parsedUpdateVersion(tag),pageVersion=pageParts&&updateVersionText(pageParts);
+   if(!summary.portable||summary.latestVersion!==requestedVersion||pageVersion!==requestedVersion||target.protocol!=='https:'||target.hostname!=='github.com'||target.port||target.username||target.password||target.search||target.hash||target.href!==summary.releaseUrl)throw Error('The official release page could not be verified.');
+   await shell.openExternal(target.href);return true;
+  });
   handler('diagnostics:export',async()=>{
    const result=await dialog.showSaveDialog(win,{title:'Export privacy-safe support bundle',defaultPath:`Soundcloud-Desktop-support-${new Date().toISOString().slice(0,10)}.json`,filters:[{name:'Support bundle',extensions:['json']}]});
    if(result.canceled||!result.filePath)return {saved:false};

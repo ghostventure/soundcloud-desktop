@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('studio',{
   backendHealth:()=>ipcRenderer.invoke('backend:health'), exportSupportBundle:()=>ipcRenderer.invoke('diagnostics:export'),
   checkUpdates:()=>ipcRenderer.invoke('update:check'), downloadUpdate:version=>ipcRenderer.invoke('update:download',version),
   cancelUpdateDownload:()=>ipcRenderer.invoke('update:cancel'), installUpdate:version=>ipcRenderer.invoke('update:install',version),
+  openUpdateRelease:version=>ipcRenderer.invoke('update:open-release',version),
   onUpdateProgress:fn=>ipcRenderer.on('update:progress',(_event,data)=>fn(data)),
   trackArtwork:id=>ipcRenderer.invoke('audio:artwork',id),cancelUpload:()=>ipcRenderer.invoke('audio:cancel-upload'),
   onUpload:fn=>ipcRenderer.on('upload:progress',(_event,data)=>fn(data))
