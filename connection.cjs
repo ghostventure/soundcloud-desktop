@@ -15,6 +15,7 @@ const catalogExtraFieldLimit = 16;
 const catalogExtraValueLimit = 512;
 const catalogExtraByteLimit = 256 * 1024;
 const catalogFreshnessWindowMs = 24 * 60 * 60 * 1000;
+const syncCheckpointByteLimit = 4096;
 const apiCallTimeoutMs = 30000;
 const catalogSyncDeadlineMs = 5 * 60 * 1000;
 const apiCircuitFailureLimit = 3;
@@ -431,9 +432,34 @@ function validateStoredVault(stored) {
   return { vault: { version: 2, activeAccountId: account.id, accounts: [account] }, migrated: true };
 }
 
+function validateSyncCheckpoint(value) {
+  const validTimestamp = timestamp => typeof timestamp === 'string' && timestamp.length <= 40 && Number.isFinite(Date.parse(timestamp)) && new Date(Date.parse(timestamp)).toISOString() === timestamp;
+  if (!isPlainObject(value) || value.version !== 1 || typeof value.accountId !== 'string' || !value.accountId || value.accountId.length > 100 ||
+      !['running', 'completed', 'interrupted'].includes(value.status) ||
+      !Number.isSafeInteger(value.pageCount) || value.pageCount < 0 || value.pageCount > catalogPageCountLimit ||
+      !Number.isSafeInteger(value.trackCount) || value.trackCount < 0 || value.trackCount > catalogTrackLimit ||
+      !validTimestamp(value.startedAt) || !validTimestamp(value.lastUpdated) ||
+      typeof value.errorCode !== 'string' || value.errorCode.length > 80 || (value.errorCode && !/^SC_[A-Z0-9_]{1,72}$/.test(value.errorCode)) ||
+      (value.status !== 'interrupted' && !!value.errorCode) || (value.status === 'interrupted' && !value.errorCode)) {
+    throw Error('Saved SoundCloud sync progress has an invalid format.');
+  }
+  return {
+    version: 1,
+    accountId: value.accountId,
+    startedAt: value.startedAt,
+    pageCount: value.pageCount,
+    trackCount: value.trackCount,
+    lastUpdated: value.lastUpdated,
+    status: value.status,
+    errorCode: value.errorCode
+  };
+}
+
 function createConnection(dir) {
   const file = path.join(dir, 'soundcloud.secure');
+  const checkpointFile = path.join(dir, 'soundcloud.sync-progress.secure');
   let vault = { version: 2, activeAccountId: '', accounts: [] };
+  let syncCheckpoint = null;
   let pending = false;
   let syncing = false;
   let needsMigration = false;
@@ -517,7 +543,53 @@ function createConnection(dir) {
     }
   }
 
+  function persistSyncCheckpoint(value) {
+    if (!safeStorage.isEncryptionAvailable()) throw apiError('Windows credential encryption is unavailable.', { code: 'SC_SYNC_CHECKPOINT_FAILED' });
+    const checkpoint = validateSyncCheckpoint(value);
+    const temp = `${checkpointFile}.${crypto.randomUUID()}.tmp`;
+    let descriptor;
+    try {
+      const encrypted = safeStorage.encryptString(JSON.stringify(checkpoint));
+      if (encrypted.byteLength > syncCheckpointByteLimit) throw Error('SoundCloud sync progress exceeded its safe size limit.');
+      descriptor = fs.openSync(temp, 'wx', 0o600);
+      fs.writeFileSync(descriptor, encrypted);
+      fs.fsyncSync(descriptor);
+      fs.closeSync(descriptor);
+      descriptor = undefined;
+      fs.renameSync(temp, checkpointFile);
+      syncCheckpoint = checkpoint;
+      return checkpoint;
+    } catch {
+      if (descriptor !== undefined) { try { fs.closeSync(descriptor); } catch { /* Keep the previous checkpoint intact. */ } }
+      try { fs.rmSync(temp, { force: true }); } catch { /* Keep the previous checkpoint intact. */ }
+      throw apiError('Could not save SoundCloud sync progress safely.', { code: 'SC_SYNC_CHECKPOINT_FAILED' });
+    }
+  }
+
+  function loadSyncCheckpoint() {
+    try {
+      const info = fs.lstatSync(checkpointFile);
+      if (!info.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > syncCheckpointByteLimit) return null;
+      const encrypted = fs.readFileSync(checkpointFile);
+      const checkpoint = validateSyncCheckpoint(JSON.parse(safeStorage.decryptString(encrypted)));
+      const record = vault.accounts.find(item => item.id === checkpoint.accountId);
+      const snapshotMatches = record?.snapshot?.syncWindow?.startedAt === checkpoint.startedAt;
+      if (snapshotMatches && checkpoint.status !== 'completed') {
+        const completed = { ...checkpoint, status: 'completed', errorCode: '', lastUpdated: record.snapshot.syncedAt || checkpoint.lastUpdated };
+        try { return persistSyncCheckpoint(completed); }
+        catch { syncCheckpoint = completed; return completed; }
+      }
+      if (checkpoint.status === 'running') {
+        const interrupted = { ...checkpoint, status: 'interrupted', errorCode: 'SC_PROCESS_INTERRUPTED', lastUpdated: new Date().toISOString() };
+        try { return persistSyncCheckpoint(interrupted); }
+        catch { syncCheckpoint = interrupted; return interrupted; }
+      }
+      return checkpoint;
+    } catch { return null; }
+  }
+
   if (needsMigration) persist();
+  syncCheckpoint = loadSyncCheckpoint();
 
   function active() {
     return vault.accounts.find(item => item.id === vault.activeAccountId) || null;
@@ -541,6 +613,7 @@ function createConnection(dir) {
       connected: !!record?.accessToken,
       snapshot: record?.snapshot || null,
       snapshotFreshness: snapshotFreshness(record),
+      syncCheckpoint: syncCheckpoint?.accountId === record?.id ? structuredClone(syncCheckpoint) : null,
       activeAccountId: record?.id || '',
       accounts: vault.accounts.map(accountStatus)
     };
@@ -727,7 +800,19 @@ function createConnection(dir) {
     const syncStartedAtMs = Date.now();
     const syncStartedAt = new Date(syncStartedAtMs).toISOString();
     const deadlineAt = Date.now() + catalogSyncDeadlineMs;
+    let checkpoint = {
+      version: 1,
+      accountId: record.id,
+      startedAt: syncStartedAt,
+      pageCount: 0,
+      trackCount: 0,
+      lastUpdated: syncStartedAt,
+      status: 'running',
+      errorCode: ''
+    };
     try {
+      syncCheckpoint = checkpoint;
+      persistSyncCheckpoint(checkpoint);
       const profile = validateProfile(await request('/me', record, { deadlineAt }));
       const tracks = [];
       const extraBudget = { usedBytes: 0 };
@@ -735,15 +820,18 @@ function createConnection(dir) {
       let pages = 0;
       const seenIds = new Set();
       const seenPages = new Set();
-      while (next && pages++ < catalogPageCountLimit) {
+      while (next && pages < catalogPageCountLimit) {
         next = validatePaginationHref(next);
         if (seenPages.has(next)) throw apiError('SoundCloud repeated a catalog page. The previous snapshot was preserved.', { code: 'SC_PAGINATION_LOOP' });
         seenPages.add(next);
         const data = await request(next, record, { deadlineAt });
         next = appendSnapshotPage(tracks, data, seenIds, extraBudget);
+        pages++;
+        checkpoint = { ...checkpoint, pageCount: pages, trackCount: tracks.length, lastUpdated: new Date().toISOString() };
+        persistSyncCheckpoint(checkpoint);
       }
       if (Date.now() >= deadlineAt) throw classifyNetworkError(Error('deadline'), deadlineAt);
-      if (next) throw Error('Catalog exceeds this build’s 10,000-track sync limit. Previous snapshot preserved.');
+      if (next) throw apiError('Catalog exceeds this build’s 10,000-track sync limit. Previous snapshot preserved.', { code: 'SC_CATALOG_LIMIT' });
       const candidate = structuredClone(vault);
       const candidateRecord = candidate.accounts.find(item => item.id === record.id);
       if (!candidateRecord) throw Error('The connected SoundCloud account is no longer available.');
@@ -767,7 +855,16 @@ function createConnection(dir) {
       delete candidateRecord.snapshotInvalidatedAt;
       if (!candidateRecord.label || candidateRecord.label === 'SoundCloud account') candidateRecord.label = profile.username || candidateRecord.label;
       persist(candidate);
+      checkpoint = { ...checkpoint, status: 'completed', errorCode: '', lastUpdated: syncedAt };
+      try { persistSyncCheckpoint(checkpoint); }
+      catch { syncCheckpoint = checkpoint; /* The committed snapshot's syncWindow repairs a stale running checkpoint on next launch. */ }
       return status();
+    } catch (error) {
+      const errorCode = typeof error?.code === 'string' && /^SC_[A-Z0-9_]{1,72}$/.test(error.code) ? error.code : 'SC_SYNC_FAILED';
+      const interrupted = { ...checkpoint, status: 'interrupted', errorCode, lastUpdated: new Date().toISOString() };
+      try { persistSyncCheckpoint(interrupted); }
+      catch { syncCheckpoint = interrupted; }
+      throw error;
     } finally {
       syncing = false;
     }
