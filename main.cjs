@@ -108,6 +108,7 @@ const ipcContracts={
  'account:authorize':{args:[],limit:3,window:60000},
  'account:sync':{args:[],limit:4,window:60000},
  'account:activity-feed':{args:[],limit:4,window:60000},
+ 'account:followings-tracks':{args:[],limit:4,window:60000},
  'account:comments':{args:[stringArg('SoundCloud track ID',160,{min:1,pattern:/^(?:soundcloud:tracks:\d{1,128}|[A-Za-z0-9_-]{1,128})$/})],limit:12,window:60000},
  'account:export-performance-digest':{args:[],limit:4,window:60000},
  'account:disconnect':{args:[],limit:10,window:60000},
@@ -559,6 +560,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   try{account=require('./connection.cjs').createConnection(app.getPath('userData'));}catch(e){const message=redactDiagnosticText(e?.message||e);recordDiagnostic('connection-startup',message);dialog.showErrorBox('SoundCloud connection',message);}
   handler('account:status',()=>account?account.status():{configured:false,connected:false});
   handler('account:activity-feed',()=>account?account.activityFeed():Promise.reject(Error('Connect your SoundCloud account first.')));
+  handler('account:followings-tracks',()=>account?account.followedArtistsTracks():Promise.reject(Error('Connect your SoundCloud account first.')));
   handler('account:export-performance-digest',async()=>{
    if(!account)throw Error('SoundCloud account storage is unavailable.');
    const snapshot=account.status().snapshot;

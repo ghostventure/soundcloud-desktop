@@ -172,6 +172,9 @@ Portable builds can check the stable release and open its validated official Git
 - [Artist profile details](ARTIST-PROFILE-0.2.3.md)
 - [Project README](../README.md)
 
+## Recent tracks from followed artists
+
+On the **SoundCloud** page, choose **Load recent tracks** in **Recent tracks from artists you follow**. The app makes one user-initiated request to SoundCloud's documented `GET /me/followings/tracks` endpoint and shows up to 25 returned tracks with artist names and SoundCloud links. Refresh to request a new snapshot. Results stay in memory for the session, are scoped to the active account, and are not background-polled or saved to workspace files.
 ## SoundCloud listener comments
 
 Open **SoundCloud → Comments**, choose a track from the active account’s last synced SoundCloud catalog, then select **Load comments**. Loading is user initiated; opening the page does not request comments. Each click sends one documented `GET /tracks/{track_urn}/comments` request with `linked_partitioning=true&limit=100`. The app displays up to 100 results for that request and does not automatically fetch additional pages. Search matches listener names and comment text; the All, Timed, and General filters distinguish comments with or without an API timestamp. When SoundCloud returns a creation date or track position, the app displays it. Use **Open track** to visit the track on SoundCloud.

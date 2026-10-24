@@ -1,32 +1,28 @@
-# SoundCloud API-backed UX plan (0.3.0)
+# SoundCloud API-backed UX scope
 
-## Scope rule
+## Provenance and scope
 
-Keep features that use documented SoundCloud API data or actions. Leave out local-only workflow ideas for this pass, and do not use page scraping, private endpoints, or guesses about SoundCloud Team communications.
+The repository and retained agent handoffs do not contain the original itemized 50-idea UX list. Its individual titles cannot be reconstructed reliably, so this document does not assign new features to those ranks or claim that a particular number of the 50 is supported. The earlier claim that exactly 12 ideas were supported is unverified without that list.
 
-The [SoundCloud Public API Explorer](https://developers.soundcloud.com/docs/api/explorer/open-api) documents authenticated activity feeds, track comments, track metadata, uploads, and user/catalog resources. It does not document a separate inbox for official SoundCloud Team announcements.
+For this cleanup, an item stays active only when the SoundCloud Public API OpenAPI document describes the resource or action. Do not scrape web pages, call private endpoints, infer private analytics, or claim SoundCloud Team messages are available through the API. Local-only ideas are outside this SoundCloud-supported list.
 
-## Existing capabilities reused
+## API-backed features already in the 0.3.0 source
 
-- The catalog stores SoundCloud-provided profile and track counts, captures metric history during sync, and shows snapshot comparisons.
-- The UI identifies which data comes from the latest SoundCloud snapshot and already shows upload receipts and available track links.
-- Desktop alerts report app upload and catalog-sync outcomes when the window is hidden.
+- **Activity feed:** Read-only authenticated `GET /me/feed`, bounded pagination, local filters, freshness labels, and account-scoped in-memory results.
+- **Listener comments:** User-initiated comments review for one track from the active account's synced catalog. One bounded request; no replies, moderation, or catalog-wide fanout.
+- **Performance milestones and digest:** Thresholds checked after a successful manual sync and export of saved API snapshots with observed adjacent-snapshot differences. These are not real-time analytics.
+Existing SoundCloud-backed capabilities include the account profile and catalog sync, catalog metrics and snapshot comparisons, upload receipts, and SoundCloud track links. These are not counted as new features in this pass.
 
-## Implementation wave
+## Additional API-backed implementation on the follower-review branch
 
-1. **Creator activity feed:** Read-only feed from a documented authenticated activity endpoint, with bounded pagination, event filters, freshness labels, and account isolation. No SoundCloud Team messages.
-2. **Comments review:** User-initiated review of comments on a selected owned track through the documented track-comments endpoint; bounded results, local filtering/grouping, and safe links back to SoundCloud. No automated replies or moderation actions.
-3. **Performance digest and alerts:** Summarize API-provided snapshot changes, let the artist choose milestones, and evaluate alerts only after a user-started sync. Show capture time and observed deltas; do not imply real-time analytics.
+- **Recent tracks from followed artists:** A user-initiated, one-page `GET /me/followings/tracks` snapshot of up to 25 tracks, scoped to the active account and held in memory only. This feature is implemented in the isolated feature branch and is not part of the already-built 0.3.0 installer.
 
-## Excluded by SoundCloud API support
+## Excluded from the active list
 
-- Track processing status: excluded because the documented public Track schema does not provide a processing-state field.
 - SoundCloud Team announcements or inbox: no such resource is documented in the public API.
-- Local-only workflow ideas: excluded from this API-supported feature wave.
+- Remote track processing-status refresh/history: the published Track schema does not expose a processing-state field, and no supported processing-history endpoint is documented.
+- Local-only workflow suggestions: not SoundCloud API capabilities, so they are not part of this API-supported pass.
 
-## Verification and delivery
+## Verification boundary
 
-- Agents work in isolated branches; the project manager reviews and integrates each change.
-- Run an integrated package build, but skip smoke tests as requested.
-- Update the user guide and release notes, build the Windows installer, install it, and verify the installed version and preserved workspace data.
-- Do not claim API events or team messages that SoundCloud does not expose.
+Use only documented SoundCloud API endpoints and fields, bound request size and frequency, and show when data was retrieved. Skip smoke tests as requested; package/install verification is handled separately from this scope document.

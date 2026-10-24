@@ -1311,6 +1311,23 @@ function createConnection(dir) {
     };
   }
 
+  async function followedArtistsTracks() {
+    const record = active();
+    if (!record?.accessToken) throw Error('Connect your SoundCloud account first.');
+    const deadlineAt = Date.now() + 60000;
+    const data = await request('/me/followings/tracks?limit=25', record, { deadlineAt });
+    if (!isPlainObject(data) || !Array.isArray(data.collection) || data.collection.length > 25) {
+      throw apiError('SoundCloud returned an invalid followed-artists track list.', { code: 'SC_INVALID_FOLLOWING_TRACKS' });
+    }
+    const items = data.collection.filter(item => isPlainObject(item) && typeof item.title === 'string' && item.title.length <= 500).map(item => ({
+      title: item.title,
+      artist: typeof item.user?.username === 'string' && item.user.username.length <= 256 ? item.user.username : 'SoundCloud artist',
+      createdAt: typeof item.created_at === 'string' && item.created_at.length <= 64 && Number.isFinite(Date.parse(item.created_at)) ? new Date(item.created_at).toISOString() : '',
+      permalinkUrl: typeof item.permalink_url === 'string' && item.permalink_url.length <= 1000 ? item.permalink_url : ''
+    }));
+    return { accountId: record.id, fetchedAt: new Date().toISOString(), source: 'SoundCloud Public API: GET /me/followings/tracks', items };
+  }
+
   async function preview(trackId, range = '', authRetried = false, deadlineAt = Date.now() + 60000) {
     const record = active();
     if (!record?.accessToken) throw Error('Connect your SoundCloud account to preview this track.');
@@ -1527,6 +1544,7 @@ function createConnection(dir) {
     health,
     sync,
     activityFeed,
+    followedArtistsTracks,
     comments,
     credentials,
     add,
