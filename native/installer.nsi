@@ -1,9 +1,9 @@
 Unicode true
 !include "MUI2.nsh"
 !include "x64.nsh"
-Name "Soundcloud Desktop"
-OutFile "..\dist\Soundcloud-Desktop-Setup-0.1.9.exe"
-InstallDir "$LOCALAPPDATA\Programs\Soundcloud Desktop"
+Name "SoundHub"
+OutFile "..\dist\SoundHub-Setup-0.1.9.exe"
+InstallDir "$LOCALAPPDATA\Programs\SoundHub"
 RequestExecutionLevel user
 CRCCheck force
 SetCompressor /SOLID lzma
@@ -12,7 +12,7 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN "$INSTDIR\Soundcloud Desktop.exe"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\SoundHub.exe"
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -33,26 +33,26 @@ Function .onInit
  Abort
  ready:
 FunctionEnd
-Section "Soundcloud Desktop"
+Section "SoundHub"
  SetOutPath "$INSTDIR"
- File "out\Soundcloud Desktop.exe"
- File "out\Soundcloud Desktop.exe.config"
+ File "out\SoundHub.exe"
+ File "out\SoundHub.exe.config"
  File "out\curl.exe"
  File "out\curl-ca-bundle.crt"
  File "out\icon.ico"
  File "out\START-HERE.txt"
  File /r "out\licenses"
  WriteUninstaller "$INSTDIR\Uninstall.exe"
- CreateDirectory "$SMPROGRAMS\Soundcloud Desktop"
- CreateShortcut "$SMPROGRAMS\Soundcloud Desktop\Soundcloud Desktop.lnk" "$INSTDIR\Soundcloud Desktop.exe"
- CreateShortcut "$DESKTOP\Soundcloud Desktop.lnk" "$INSTDIR\Soundcloud Desktop.exe"
- WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoundcloudDesktop" "DisplayName" "Soundcloud Desktop"
+ CreateDirectory "$SMPROGRAMS\SoundHub"
+ CreateShortcut "$SMPROGRAMS\SoundHub\SoundHub.lnk" "$INSTDIR\SoundHub.exe"
+ CreateShortcut "$DESKTOP\SoundHub.lnk" "$INSTDIR\SoundHub.exe"
+ WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoundcloudDesktop" "DisplayName" "SoundHub"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoundcloudDesktop" "DisplayVersion" "0.1.9"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoundcloudDesktop" "UninstallString" '"$INSTDIR\Uninstall.exe"'
 SectionEnd
 Section "Uninstall"
- Delete "$INSTDIR\Soundcloud Desktop.exe"
- Delete "$INSTDIR\Soundcloud Desktop.exe.config"
+ Delete "$INSTDIR\SoundHub.exe"
+ Delete "$INSTDIR\SoundHub.exe.config"
  Delete "$INSTDIR\curl.exe"
  Delete "$INSTDIR\curl-ca-bundle.crt"
  Delete "$INSTDIR\icon.ico"
@@ -60,8 +60,8 @@ Section "Uninstall"
  RMDir /r "$INSTDIR\licenses"
  Delete "$INSTDIR\Uninstall.exe"
  RMDir "$INSTDIR"
- Delete "$DESKTOP\Soundcloud Desktop.lnk"
- Delete "$SMPROGRAMS\Soundcloud Desktop\Soundcloud Desktop.lnk"
- RMDir "$SMPROGRAMS\Soundcloud Desktop"
+ Delete "$DESKTOP\SoundHub.lnk"
+ Delete "$SMPROGRAMS\SoundHub\SoundHub.lnk"
+ RMDir "$SMPROGRAMS\SoundHub"
  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoundcloudDesktop"
 SectionEnd

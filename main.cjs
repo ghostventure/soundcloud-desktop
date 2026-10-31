@@ -5,6 +5,7 @@ const os=require('node:os');
 const crypto=require('node:crypto');
 const {spawn}=require('node:child_process');
 const {createStore,randomUUID}=require('./store.cjs');
+app.setName('SoundHub');
 const testDir=!app.isPackaged&&process.env.CLOUDROOM_TEST_DATA;
 if(testDir) app.setPath('userData',testDir);
 else app.setPath('userData',path.join(app.getPath('appData'),'Soundcloud Desktop'));
@@ -36,7 +37,7 @@ function notifyHidden(kind){
  try{const notification=new Notification({title:message[0],body:message[1]});notification.on('click',()=>{if(!win||win.isDestroyed())createWindow();else{win.show();win.focus();}});notification.show();}catch{}
 }
 function createWindow(){
- win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'SC-DS — Artist workspace',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webviewTag:false,webSecurity:true,allowRunningInsecureContent:false,devTools:!app.isPackaged}});
+ win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'SoundHub — Artist workspace',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webviewTag:false,webSecurity:true,allowRunningInsecureContent:false,devTools:!app.isPackaged}});
  win.removeMenu(); win.loadFile(path.join(__dirname,'ui/index.html')); win.once('ready-to-show',()=>{theme(store.read().profile.theme);win.show();});
  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
  win.webContents.on('will-navigate',e=>e.preventDefault());
@@ -220,7 +221,7 @@ async function readLimitedBody(response,maxBytes){
 }
 async function requestGitHubRelease(signal){
  let response;
- try{response=await fetch(`https://api.github.com/repos/${updateRepo.owner}/${updateRepo.name}/releases/latest`,{method:'GET',redirect:'error',signal,headers:{Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','User-Agent':'SoundcloudDesktop-Updater'}});}
+ try{response=await fetch(`https://api.github.com/repos/${updateRepo.owner}/${updateRepo.name}/releases/latest`,{method:'GET',redirect:'error',signal,headers:{Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','User-Agent':'SoundHub-Updater'}});}
  catch(error){if(signal?.aborted)throw Error('GitHub update check timed out or was canceled.');throw Error('Could not reach GitHub to check for updates.');}
  if(response.status===403||response.status===429)throw Error('GitHub limited update requests. Try again later.');
  if(response.status===404)throw Error('No published GitHub release was found.');
@@ -232,7 +233,8 @@ async function requestGitHubRelease(signal){
 function selectUpdateInstaller(release,releaseVersion){
  const matching=release.assets.filter(asset=>{
   if(!plainObject(asset)||asset.state!=='uploaded'||typeof asset.name!=='string')return false;
-  const match=asset.name.match(/^SC-DS Installation Manager-Setup-((?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5}))\.exe$/i)
+  const match=asset.name.match(/^SoundHub Installation Manager-Setup-((?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5}))\.exe$/i)
+   ||asset.name.match(/^SC-DS Installation Manager-Setup-((?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5}))\.exe$/i)
    ||asset.name.match(/^soundcloud[ .]desktop[ .-]+setup[ .-]+v?((?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5}))\.exe$/i);
   const version=match&&parsedUpdateVersion(match[1]);
   return !!version&&compareUpdateVersions(version,releaseVersion)===0;
@@ -312,7 +314,7 @@ async function fetchReleaseAsset(url,signal){
  let target=new URL(url);
  for(let redirects=0;redirects<=3;redirects++){
   if(target.protocol!=='https:'||!allowedHosts.has(target.hostname.toLowerCase())||target.username||target.password||target.port)throw Error('The installer download left the approved GitHub hosts.');
-  let response;try{response=await fetch(target,{method:'GET',redirect:'manual',signal,headers:{'User-Agent':'SoundcloudDesktop-Updater','Accept':'application/octet-stream'}});}catch(error){if(signal.aborted)throw error;throw Error('The installer could not be downloaded from GitHub.');}
+  let response;try{response=await fetch(target,{method:'GET',redirect:'manual',signal,headers:{'User-Agent':'SoundHub-Updater','Accept':'application/octet-stream'}});}catch(error){if(signal.aborted)throw error;throw Error('The installer could not be downloaded from GitHub.');}
   if([301,302,303,307,308].includes(response.status)){
    const location=response.headers.get('location');try{await response.body?.cancel();}catch{}
    if(!location||redirects===3)throw Error('GitHub returned an invalid installer redirect.');
@@ -334,14 +336,14 @@ async function downloadGitHubUpdate(version){
   const verified=await fetchVerifiedUpdate(version,controller.signal),offer=verified.summary,installer=verified.installer;
   if(!installer||!offer.available||offer.latestVersion!==version)throw Error('No newer verified installed-build update is available.');
   if(controller.signal.aborted)throw Error('Update download canceled.');
-  const directory=await resolveStagingDirectory(),target=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
+  const directory=await resolveStagingDirectory(),target=path.join(directory,`SoundHub-Setup-${version}.exe`);
   const existingHash=await hashStagedInstaller(target,installer.size);
   if(existingHash===installer.digest){await verifyOptionalInstallerSignature(target);return {downloaded:true,version,size:installer.size,digest:installer.digest,reused:true};}
   try{await fs.promises.unlink(target);}catch(error){if(error.code!=='ENOENT')throw Error('The previous staged installer could not be replaced.');}
   const response=await fetchReleaseAsset(installer.downloadUrl,controller.signal);
   const lengthHeader=response.headers.get('content-length'),declared=lengthHeader===null?NaN:Number(lengthHeader);
   if(Number.isFinite(declared)&&declared!==installer.size)throw Error('GitHub reported an unexpected installer size.');
-  temp=path.join(directory,`SoundcloudDesktop-Setup-${version}.${randomUUID()}.part`);
+  temp=path.join(directory,`SoundHub-Setup-${version}.${randomUUID()}.part`);
   handle=await fs.promises.open(temp,'wx',0o600);
   const hash=crypto.createHash('sha256');
   sendUpdateProgress({version,phase:'downloading',received,total:installer.size});
@@ -378,10 +380,10 @@ async function installGitHubUpdate(version){
  try{
  const verified=await fetchVerifiedUpdate(version),offer=verified.summary,installer=verified.installer;
  if(!installer||!offer.available||offer.latestVersion!==version)throw Error('No newer verified installed-build update is available. Check GitHub again.');
- const directory=await resolveStagingDirectory(),file=path.join(directory,`SoundcloudDesktop-Setup-${version}.exe`);
+ const directory=await resolveStagingDirectory(),file=path.join(directory,`SoundHub-Setup-${version}.exe`);
  if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer is missing or failed its SHA-256 check. Download and verify it again.');
  await verifyOptionalInstallerSignature(file);
- const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Open installer'],defaultId:0,cancelId:0,message:`Open the verified SC-DS ${version} installer?`,detail:'The setup program will open for you to review and run. No update is installed silently; close the setup window to cancel.'});
+ const answer=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Open installer'],defaultId:0,cancelId:0,message:`Open the verified SoundHub ${version} installer?`,detail:'The setup program will open for you to review and run. No update is installed silently; close the setup window to cancel.'});
  if(answer.response!==1)return {started:false,canceled:true};
  if(await hashStagedInstaller(file,installer.size)!==installer.digest)throw Error('The staged installer changed after review. Download and verify it again.');
  await verifyOptionalInstallerSignature(file);
@@ -399,7 +401,7 @@ async function cleanupOldUpdateStaging(){
  const now=Date.now();
  for(const entry of entries){
   if(!entry.isFile()||entry.isSymbolicLink())continue;
-  if(!/^SoundcloudDesktop-Setup-\d+\.\d+\.\d+(?:\.[0-9a-f-]{36})?\.(?:exe|part)$/i.test(entry.name))continue;
+  if(!/^(?:SoundHub-Setup|SoundcloudDesktop-Setup)-\d+\.\d+\.\d+(?:\.[0-9a-f-]{36})?\.(?:exe|part)$/i.test(entry.name))continue;
   const file=path.join(directory,entry.name);let stat;try{stat=await fs.promises.lstat(file);}catch{continue;}
   const maxAge=entry.name.endsWith('.part')?24*60*60*1000:30*24*60*60*1000;
   if(now-stat.mtimeMs>maxAge)try{await fs.promises.unlink(file);}catch{}
@@ -642,12 +644,12 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
    await shell.openExternal(target.href);return true;
   });
   handler('diagnostics:export',async()=>{
-   const result=await dialog.showSaveDialog(win,{title:'Export privacy-safe support bundle',defaultPath:`Soundcloud-Desktop-support-${new Date().toISOString().slice(0,10)}.json`,filters:[{name:'Support bundle',extensions:['json']}]});
+   const result=await dialog.showSaveDialog(win,{title:'Export privacy-safe support bundle',defaultPath:`SoundHub-support-${new Date().toISOString().slice(0,10)}.json`,filters:[{name:'Support bundle',extensions:['json']}]});
    if(result.canceled||!result.filePath)return {saved:false};
    const bundle={
     schemaVersion:1,
     generatedAt:new Date().toISOString(),
-    app:{name:'SC-DS',version:app.getVersion()},
+    app:{name:'SoundHub',version:app.getVersion()},
     system:{platform:process.platform,release:os.release(),architecture:process.arch,electron:process.versions.electron,chromium:process.versions.chrome,node:process.versions.node},
     backend:await collectBackendHealth(),
     recentEvents:diagnosticEvents.slice(0,50).map(({at,channel,category,code})=>({at,channel,category,...(code?{code}:{})})),
@@ -699,8 +701,8 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
     throw error;
    }finally{uploadController=null;}
   });
-  tray=new Tray(path.join(__dirname,'assets/icon.ico'));tray.setToolTip('SC-DS · Artist workspace');
-  tray.setContextMenu(Menu.buildFromTemplate([{label:'Open SC-DS',click:()=>{if(!win)createWindow();else win.show();}},{label:'Quit',click:()=>{quitting=true;app.quit();}}]));
+  tray=new Tray(path.join(__dirname,'assets/icon.ico'));tray.setToolTip('SoundHub · Artist workspace');
+  tray.setContextMenu(Menu.buildFromTemplate([{label:'Open SoundHub',click:()=>{if(!win)createWindow();else win.show();}},{label:'Quit',click:()=>{quitting=true;app.quit();}}]));
   tray.on('double-click',()=>{if(!win)createWindow();else win.show();});
   handler('workspace:read',()=>store.read());
   handler('workspace:save',s=>{ // Renderer may edit metadata but cannot grant itself filesystem access.
@@ -725,7 +727,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
   handler('audio:reveal',id=>{const t=store.read().tracks.find(t=>t.id===id);if(t && fs.existsSync(t.file))shell.showItemInFolder(t.file);else throw Error('The original file was moved or removed.');});
   handler('audio:artwork',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Cover artwork',extensions:['png','jpg','jpeg']}]});if(r.canceled)return store.read();const s=store.read();const t=s.tracks.find(t=>t.id===id);if(!t)throw Error('Track not found.');t.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
   handler('artwork:pick',async id=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Artwork',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled)return store.read();const s=store.read();const release=s.releases.find(r=>r.id===id);if(!release)throw Error('Release not found');release.art=await saveArtwork(r.filePaths[0]);return store.writeAsync(s);});
-  handler('workspace:backup',async()=>{const notice=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Choose backup location'],defaultId:0,cancelId:0,message:'Protect your workspace backup',detail:'The exported JSON backup is readable and is not encrypted by SC-DS. It includes profile details, workspace notes, local file paths, track titles, and upload receipts, but excludes SoundCloud login credentials and audio bytes. Save it only in a folder you control.'});if(notice.response!==1)return false;const r=await dialog.showSaveDialog(win,{defaultPath:'SC-DS-workspace-backup.json',filters:[{name:'Workspace backup',extensions:['json']}]});if(!r.canceled){await store.flush();await fs.promises.writeFile(r.filePath,serializeWorkspaceBackup(store.read()),'utf8');return true;}return false;});
+  handler('workspace:backup',async()=>{const notice=await dialog.showMessageBox(win,{type:'warning',buttons:['Cancel','Choose backup location'],defaultId:0,cancelId:0,message:'Protect your workspace backup',detail:'The exported JSON backup is readable and is not encrypted by SoundHub. It includes profile details, workspace notes, local file paths, track titles, and upload receipts, but excludes SoundCloud login credentials and audio bytes. Save it only in a folder you control.'});if(notice.response!==1)return false;const r=await dialog.showSaveDialog(win,{defaultPath:'SoundHub-workspace-backup.json',filters:[{name:'Workspace backup',extensions:['json']}]});if(!r.canceled){await store.flush();await fs.promises.writeFile(r.filePath,serializeWorkspaceBackup(store.read()),'utf8');return true;}return false;});
   handler('workspace:restore',async()=>{
    const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Workspace backup',extensions:['json']}]});if(r.canceled)return null;
    const {validate}=require('./store.cjs'),backup=await readWorkspaceBackup(r.filePaths[0]),next=validate(backup.workspace),current=store.read();

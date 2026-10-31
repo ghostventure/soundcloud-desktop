@@ -1,4 +1,4 @@
-# Soundcloud Desktop 0.2.8 source update
+# SoundHub 0.2.8 source update
 
 This note describes the source and package metadata at version 0.2.8. The Windows x64 setup and portable packages were built and published on GitHub: [v0.2.8 release](https://github.com/ghostventure/soundcloud-desktop/releases/tag/v0.2.8). The first 50 ranks were a priority pass over backend work, not 50 newly added features: several protections already existed, and several capabilities are limited by SoundCloud's API.
 

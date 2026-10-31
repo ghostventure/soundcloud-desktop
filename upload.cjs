@@ -169,7 +169,7 @@ async function sendUpload(file, metadata, { token, url = `${uploadOrigin}/tracks
     if (cover) { openedFiles.push(cover); await validateArtworkSignature(cover); }
     const fileEntries = [['asset_data', audio], ...(cover ? [['artwork_data', cover]] : [])];
 
-    const boundary = `----SoundcloudDesktop${crypto.randomBytes(16).toString('hex')}`;
+    const boundary = `----SoundHub${crypto.randomBytes(16).toString('hex')}`;
     const chunks = [];
     for (const [key, value] of fields) {
       chunks.push({ buffer: Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="track[${key}]"\r\n\r\n${value}\r\n`) });

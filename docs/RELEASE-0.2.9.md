@@ -1,4 +1,4 @@
-# Soundcloud Desktop 0.2.9 source update
+# SoundHub 0.2.9 source update
 
 This document records the integrated source coverage for backend ranks 51-100 and the limits of those capabilities. The source metadata and visible Settings version are 0.2.9. The Windows x64 setup and portable packages were built and published as the [v0.2.9 GitHub release](https://github.com/ghostventure/soundcloud-desktop/releases/tag/v0.2.9); its [SHA-256 manifest](https://github.com/ghostventure/soundcloud-desktop/releases/download/v0.2.9/SHA256SUMS-0.2.9.txt) lists both executable assets. The prior [v0.2.8 release](https://github.com/ghostventure/soundcloud-desktop/releases/tag/v0.2.8) remains available.
 

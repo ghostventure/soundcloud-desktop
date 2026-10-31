@@ -1,4 +1,4 @@
-# Soundcloud Desktop 0.2.5
+# SoundHub 0.2.5
 
 ## Current SoundCloud tracks on Overview
 

@@ -1,4 +1,4 @@
-SOUNDCLOUD DESKTOP 0.1.0 — NATIVE WINDOWS EDITION
+SOUNDHUB 0.1.0 — NATIVE WINDOWS EDITION
 
 Register a SoundCloud API app with Artist Pro, set redirect URI to
 http://127.0.0.1:49832/callback, enter its Client ID/secret locally, and authorize

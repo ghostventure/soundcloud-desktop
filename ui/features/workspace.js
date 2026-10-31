@@ -30,7 +30,7 @@
   const tag = (text, cls = '') => `<span class="aw-tag ${cls}">${esc(text)}</span>`;
   const button = (action, text, id = '', cls = '') => `<button type="button" class="${cls}" data-action="${pluginId}-${action}" data-id="${esc(id)}">${text}</button>`;
   const panel = (title, body, extra = '') => `<section class="aw-panel ${extra}"><div class="aw-panel-head"><h2>${title}</h2></div>${body}</section>`;
-  const pageHead = (title, subtitle, actions = '') => `<header class="aw-head"><div><p class="aw-kicker">SC ARTIST WORKSPACE</p><h1 tabindex="-1" data-aw-heading>${title}</h1><p>${subtitle}</p></div><div class="aw-actions">${actions}</div></header>`;
+  const pageHead = (title, subtitle, actions = '') => `<header class="aw-head"><div><p class="aw-kicker">SOUNDHUB ARTIST WORKSPACE</p><h1 tabindex="-1" data-aw-heading>${title}</h1><p>${subtitle}</p></div><div class="aw-actions">${actions}</div></header>`;
   const setStylesheet = () => {
     if (document.querySelector('link[data-artist-workspace-style]')) return;
     const link = document.createElement('link');

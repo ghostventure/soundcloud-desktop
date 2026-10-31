@@ -1,4 +1,4 @@
-# Soundcloud Desktop 0.2.7
+# SoundHub 0.2.7
 
 ## More control over the synced catalog
 

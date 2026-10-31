@@ -1,14 +1,14 @@
-# SC-DS
+# SoundHub
 
-Created and published by Black Lion Studios. Black Lion Studios supports SoundCloud; SC-DS is currently an independent product and is not affiliated with or endorsed by SoundCloud. This relationship status may change. SoundCloud owns its platform, API, and marks; third-party software remains under its own licenses. See [privacy and third-party licenses](docs/PRIVACY-AND-LICENSES.md).
+Created and published by Black Lion Studios. Black Lion Studios supports SoundCloud; SoundHub is currently an independent product and is not affiliated with or endorsed by SoundCloud. This relationship status may change. SoundCloud owns its platform, API, and marks; third-party software remains under its own licenses. See [privacy and third-party licenses](docs/PRIVACY-AND-LICENSES.md).
 
 ## Current project version
 
-The current source and package metadata are version 1.0.0. It includes API-backed SoundCloud activity, comments review, followed-artist recent tracks, sync-based performance milestones, and CSV export. The installer is named **SC-DS Installation Manager**; GitHub release availability is tracked separately. See the [1.0.0 release notes](docs/RELEASE-1.0.0.md), [Windows installer and runtime requirements](docs/WINDOWS-INSTALLER.md), [SC Artist user guide](docs/USER-GUIDE.md), and [security and local data protection](docs/SECURITY-1.0.0.md).
+The current source and package metadata are version 1.0.1. It includes API-backed SoundCloud activity, comments review, followed-artist recent tracks, sync-based performance milestones, and CSV export. The installer is named **SoundHub Installation Manager**; GitHub release availability is tracked separately. See the [1.0.1 release notes](docs/RELEASE-1.0.1.md), [Windows installer and runtime requirements](docs/WINDOWS-INSTALLER.md), [SoundHub user guide](docs/USER-GUIDE.md), and [security and local data protection](docs/SECURITY-1.0.0.md).
 
 Version 0.2.7 added catalog filters and comparison tools, track review and detail tools, workspace accessibility and navigation options, and encrypted multi-account switching. Backend catalog snapshots and workspace saves also use less memory and disk space. See [0.2.7 release notes](docs/RELEASE-0.2.7.md).
 
-For first-run setup and the main workflows, see the [SC Artist user guide](docs/USER-GUIDE.md).
+For first-run setup and the main workflows, see the [SoundHub user guide](docs/USER-GUIDE.md).
 
 Version 0.2.3 expanded Settings into an artist profile editor with a live preview, tagline, bio, genre, location, SoundCloud and website links, and a copyable formatted bio. Profile details are saved with the local workspace and included in workspace metadata backups. See [artist profile notes](docs/ARTIST-PROFILE-0.2.3.md).
 
@@ -36,7 +36,7 @@ The app is an Electron desktop application targeting 64-bit Windows 10 and 11. I
 - Local upload response tracking, artwork crop preview, and audio file details; update scheduling, crop transforms, SoundCloud click analytics, and remote processing history are not provided by the current API.
 - Bounded SoundCloud catalog sync with encrypted progress checkpoints, freshness metadata, and local absence tombstones; interrupted syncs preserve the last completed snapshot but do not resume.
 - Upload attempt recovery with local receipt journaling and a duplicate-attempt guard. An uncertain result must be checked in SoundCloud before the local review item is cleared; SoundCloud does not provide a remote idempotency guarantee here.
-- User-initiated GitHub stable-release checks. Installed Windows builds can download a bounded NSIS installer and compare its SHA-256 digest to GitHub release metadata before opening setup visibly for review. Version 1.0.0 ships through the SC-DS Installation Manager so first use includes compatibility checks and required consent.
+- User-initiated GitHub stable-release checks. Installed Windows builds can download a bounded NSIS installer and compare its SHA-256 digest to GitHub release metadata before opening setup visibly for review. Version 1.0.1 uses the SoundHub Installation Manager so first use includes compatibility checks and required consent.
 - Content-hash duplicate checks for newly imported local audio, checksummed workspace backups with legacy JSON restore support, and bounded local workspace recovery points.
 - Per-account identity binding and persisted cooldowns, upload-time audio signature/file identity checks, and Settings display of reported OAuth scopes plus observed per-route quota headers.
 - Local daily follower and track-count history captured during successful catalog syncs; this is not SoundCloud time-series analytics.

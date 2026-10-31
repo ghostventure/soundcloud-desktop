@@ -1,4 +1,4 @@
-# Soundcloud Desktop 0.2.6
+# SoundHub 0.2.6
 
 ## More SoundCloud data on Overview
 

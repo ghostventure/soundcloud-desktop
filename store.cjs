@@ -9,7 +9,7 @@ const workspaceRecoveryIntervalMs=30*60*1000;
 const workspaceRecoveryName=/^workspace-(\d{13})-([a-f0-9]{64})\.json$/i;
 const blank = () => ({version:1, profile:{name:'Your studio', theme:'dark', genre:'', location:'', tagline:'', bio:'', soundcloudUrl:'', website:'', firstRunComplete:false}, tracks:[], releases:[], campaigns:[]});
 function validate(s) {
-  if (!s || typeof s !== 'object' || Array.isArray(s) || s.version !== 1 || !s.profile || typeof s.profile !== 'object' || Array.isArray(s.profile) || !['tracks','releases','campaigns'].every(k => Array.isArray(s[k]))) throw Error('This is not a Soundcloud Desktop workspace backup.');
+  if (!s || typeof s !== 'object' || Array.isArray(s) || s.version !== 1 || !s.profile || typeof s.profile !== 'object' || Array.isArray(s.profile) || !['tracks','releases','campaigns'].every(k => Array.isArray(s[k]))) throw Error('This is not a SoundHub workspace backup.');
   if (typeof s.profile.name !== 'string' || s.profile.name.length > 256 || !['dark','light','system'].includes(s.profile.theme)) throw Error('Invalid workspace settings.');
   for (const key of ['genre','location','tagline','bio','soundcloudUrl','website']) if (s.profile[key] !== undefined && (typeof s.profile[key] !== 'string' || s.profile[key].length > 10000)) throw Error('Invalid workspace settings.');
   if (s.profile.firstRunComplete !== undefined && typeof s.profile.firstRunComplete !== 'boolean') throw Error('Invalid workspace settings.');
@@ -125,7 +125,7 @@ function createStore(dir, secureStorage = {}) {
   };
   const ensureWorkspaceUnchanged=bytes=>{
     const currentHash=bytes===null?null:hashBytes(bytes);
-    if(currentHash!==diskHash)throw Error('The workspace file changed outside Soundcloud Desktop. Reopen the app before saving so the newer data is not overwritten.');
+  if(currentHash!==diskHash)throw Error('The workspace file changed outside SoundHub. Reopen the app before saving so the newer data is not overwritten.');
   };
   const preservePrevious=bytes=>{
     if(bytes===null||recoveredFromPrevious)return;

@@ -1,7 +1,7 @@
 {
-  "name": "soundcloud-desktop",
-  "productName": "SC-DS",
-  "version": "1.0.0",
+  "name": "soundhub",
+  "productName": "SoundHub",
+  "version": "1.0.1",
   "description": "An independent Windows workspace by Black Lion Studios",
   "author": "Black Lion Studios",
   "private": true,
@@ -20,7 +20,7 @@
   },
   "build": {
     "appId": "com.soundclouddesktop.artist",
-    "productName": "SC-DS",
+    "productName": "SoundHub",
     "asar": true,
     "files": [
       "main.cjs",
@@ -55,7 +55,7 @@
       "createStartMenuShortcut": true,
       "createDesktopShortcut": true,
       "deleteAppDataOnUninstall": false,
-      "artifactName": "SC-DS Installation Manager-Setup-${version}.${ext}",
+      "artifactName": "SoundHub Installation Manager-Setup-${version}.${ext}",
       "include": "build/installer.nsh"
     },
     "electronFuses": {

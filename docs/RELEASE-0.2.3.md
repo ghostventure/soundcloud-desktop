@@ -1,4 +1,4 @@
-# Soundcloud Desktop 0.2.3
+# SoundHub 0.2.3
 
 ## What's new
 

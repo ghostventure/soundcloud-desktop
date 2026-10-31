@@ -1496,14 +1496,14 @@ function createConnection(dir) {
           if (handled || url.searchParams.get('state') !== state) { res.writeHead(400).end('Invalid authorization state.'); return; }
           handled = true;
           if (!url.searchParams.get('code')) {
-            res.writeHead(400).end('Authorization was cancelled. Return to Soundcloud Desktop.');
+            res.writeHead(400).end('Authorization was cancelled. Return to SoundHub.');
             finish(Error('SoundCloud authorization was cancelled.'));
             return;
           }
           try {
             await token(record, { grant_type: 'authorization_code', redirect_uri: redirect, code_verifier: verifier, code: url.searchParams.get('code') });
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" })
-              .end('<html><body style="background:#191a1d;color:#fafafa;font:18px Segoe UI;padding:60px"><h1>SoundCloud connected.</h1><p>You can close this tab and return to Soundcloud Desktop.</p></body></html>');
+              .end('<html><body style="background:#191a1d;color:#fafafa;font:18px Segoe UI;padding:60px"><h1>SoundCloud connected.</h1><p>You can close this tab and return to SoundHub.</p></body></html>');
             finish();
           } catch (error) {
             res.writeHead(400).end('Connection failed. Return to the desktop app for details.');

@@ -1,4 +1,4 @@
-﻿# Artist profile update
+# Artist profile update
 
 The artist profile in Settings now supports a display name, tagline, short bio, primary genre, location, SoundCloud profile URL, and website. The page shows a preview and can copy a formatted bio to the clipboard.
 

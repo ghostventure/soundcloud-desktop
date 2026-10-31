@@ -1,8 +1,8 @@
-# SC-DS User Guide
+# SoundHub User Guide
 
-**Version 1.0.0 · Windows 10 and 11**
+**Version 1.0.1 · Windows 10 and 11**
 
-SC-DS helps you organize music on this PC, prepare releases, and work with the SoundCloud account you connect. Your local music library and your online SoundCloud catalog are separate. Importing a file does not upload it; uploading is always a separate action.
+SoundHub helps you organize music on this PC, prepare releases, and work with the SoundCloud account you connect. Your local music library and your online SoundCloud catalog are separate. Importing a file does not upload it; uploading is always a separate action.
 
 ![Illustrated first-use path: set up your workspace, connect SoundCloud, sync, then review your catalog.](images/guide-start-here.svg)
 
@@ -10,7 +10,7 @@ SC-DS helps you organize music on this PC, prepare releases, and work with the S
 
 ## Start here
 
-1. Install SC-DS with **SC-DS Installation Manager**. Read the one-time consent page, which covers privacy, SoundCloud services, copyright and DMCA responsibilities, and included third-party software. Continue only if you understand and accept it.
+1. Install SoundHub with **SoundHub Installation Manager**. Read the one-time consent page, which covers privacy, SoundCloud services, copyright and DMCA responsibilities, and included third-party software. Continue only if you understand and accept it.
 2. On first launch, enter an artist or studio name. Genre, location, and bio are optional. Your profile is saved on this PC.
 3. To view online tracks, connect your SoundCloud account and select **Sync catalog**.
 4. Open **Overview** to see the latest SoundCloud snapshot and your local workspace summary.
@@ -46,7 +46,7 @@ The preview shows how your details fit together. **Copy artist bio** copies form
 
 ## Connect SoundCloud
 
-SC-DS uses credentials from your own SoundCloud API application. Keep the Client secret private.
+SoundHub uses credentials from your own SoundCloud API application. Keep the Client secret private.
 
 1. Open **SoundCloud** and find **Connection setup**.
 2. Register or open your API application using SoundCloud's [API app registration instructions](https://developers.soundcloud.com/docs/api/register-app). Follow SoundCloud's current account requirements.
@@ -54,13 +54,13 @@ SC-DS uses credentials from your own SoundCloud API application. Keep the Client
 
    `http://127.0.0.1:49832/callback`
 
-4. Enter the app's **Client ID** and **Client secret** in SC-DS, then select **Save credentials**.
+4. Enter the app's **Client ID** and **Client secret** in SoundHub, then select **Save credentials**.
 5. Select **Connect with SoundCloud**. Sign in to the intended account in your browser and approve access.
-6. Return to SC-DS and select **Sync catalog** if it does not start automatically.
+6. Return to SoundHub and select **Sync catalog** if it does not start automatically.
 
-Credentials and tokens are encrypted for your Windows account. SC-DS does not import browser cookies or passwords. Multiple saved accounts can be switched from the SoundCloud page; each connection is checked against its SoundCloud identity. Finish an upload, sync, or authorization before switching or removing an account.
+Credentials and tokens are encrypted for your Windows account. SoundHub does not import browser cookies or passwords. Multiple saved accounts can be switched from the SoundCloud page; each connection is checked against its SoundCloud identity. Finish an upload, sync, or authorization before switching or removing an account.
 
-If SC-DS says the authorization request is already open, use **Alt+Tab** or the taskbar to find the browser window and finish the existing SoundCloud request. Do not start another request while it is pending. If the page is gone, wait up to five minutes for the request to expire, then try again.
+If SoundHub says the authorization request is already open, use **Alt+Tab** or the taskbar to find the browser window and finish the existing SoundCloud request. Do not start another request while it is pending. If the page is gone, wait up to five minutes for the request to expire, then try again.
 
 ## Read Overview and your SoundCloud catalog
 
@@ -93,7 +93,7 @@ These are API snapshots, not real-time or scheduled analytics. They do not estab
 ## Import and organize audio on this PC
 
 1. Open **Music library** and choose **Import tracks**, or drag audio files into the workspace.
-2. SC-DS accepts MP3, WAV, FLAC, OGG, M4A, AAC, and AIFF file extensions.
+2. SoundHub accepts MP3, WAV, FLAC, OGG, M4A, AAC, and AIFF file extensions.
 3. Search by title, genre, or notes. Filter by Draft, Mixing, Mastered, or Released.
 4. Play a track, edit its workspace details, or reveal the original file in Explorer.
 
@@ -109,11 +109,11 @@ Importing adds a reference to the original audio; it does not move, duplicate, u
 4. Keep **Private** if the track should not be public. Choose **Public** only if you intend anyone to be able to find and listen to it.
 5. To prepare now and upload later, save it to the **draft queue**. Otherwise choose **Upload now** or **Upload track**, review the confirmation, and submit.
 
-Uploads stream from the selected original audio file. The app reports transfer progress and can cancel an active transfer. SoundCloud may continue processing after accepting the upload; SC-DS does not report remote processing status. An upload receipt records the local result, but it cannot guarantee that SoundCloud will never create a duplicate.
+Uploads stream from the selected original audio file. The app reports transfer progress and can cancel an active transfer. SoundCloud may continue processing after accepting the upload; SoundHub does not report remote processing status. An upload receipt records the local result, but it cannot guarantee that SoundCloud will never create a duplicate.
 
-If the app closes during an upload or the result is unclear, open **Upload desk** and review the attempt before trying again. Check your SoundCloud catalog first. Use **I checked SoundCloud** only after checking for the track. Clearing an unknown attempt does not cancel or remove anything on SoundCloud. Public uploads may be visible to everyone. Upload only content you own or have permission to use; SC-DS does not provide legal advice or protection from copyright claims.
+If the app closes during an upload or the result is unclear, open **Upload desk** and review the attempt before trying again. Check your SoundCloud catalog first. Use **I checked SoundCloud** only after checking for the track. Clearing an unknown attempt does not cancel or remove anything on SoundCloud. Public uploads may be visible to everyone. Upload only content you own or have permission to use; SoundHub does not provide legal advice or protection from copyright claims.
 
-When SC-DS is hidden, Windows notifications may report upload or sync results. Notification text is general and does not include track titles or account details. Windows notification settings determine whether desktop alerts appear.
+When SoundHub is hidden, Windows notifications may report upload or sync results. Notification text is general and does not include track titles or account details. Windows notification settings determine whether desktop alerts appear.
 
 ## Plan releases and promotion
 
@@ -131,25 +131,25 @@ Dates, checklists, and readiness indicators are local planning aids. They do not
 
 ### Promotion
 
-Use **Promotion** to save campaign drafts, captions, channels, dates, contacts, and links. **Promotion tools** adds reusable announcement and pitch templates, organized campaign links, contact notes, and follow-up dates. Copy text when you are ready to use it elsewhere. SC-DS does not send messages or collect link-click analytics.
+Use **Promotion** to save campaign drafts, captions, channels, dates, contacts, and links. **Promotion tools** adds reusable announcement and pitch templates, organized campaign links, contact notes, and follow-up dates. Copy text when you are ready to use it elsewhere. SoundHub does not send messages or collect link-click analytics.
 
 ## Save, restore, and protect your data
 
-![Illustration of where SC-DS data lives and which items receive Windows account encryption.](images/guide-data-protection.svg)
+![Illustration of where SoundHub data lives and which items receive Windows account encryption.](images/guide-data-protection.svg)
 
 *Illustration: simplified local data map. Audio stays at its original location; backup exports are readable files.*
 
-Your workspace, recovery history, SoundCloud account vault, sync checkpoints, and upload receipts are stored under `%APPDATA%\Soundcloud Desktop` and encrypted for your Windows account through Windows DPAPI. Settings reports whether workspace and recovery encryption is active. Some interface preferences and history, plus artwork copies, are not separately encrypted by SC-DS. Audio remains in its original folders.
+Your workspace, recovery history, SoundCloud account vault, sync checkpoints, and upload receipts are stored under `%APPDATA%\Soundcloud Desktop` and encrypted for your Windows account through Windows DPAPI. Settings reports whether workspace and recovery encryption is active. Some interface preferences and history, plus artwork copies, are not separately encrypted by SoundHub. Audio remains in its original folders.
 
 ### Export a workspace backup
 
-Open **Settings** and select **Export workspace backup**. Before choosing a save location, SC-DS explains that the exported JSON is readable and not encrypted. It includes workspace details and local file paths; it excludes SoundCloud credentials and audio bytes. Its SHA-256 checksum can detect accidental changes or corruption, but it is not a signature and does not prove who created the file. Keep backups somewhere you control.
+Open **Settings** and select **Export workspace backup**. Before choosing a save location, SoundHub explains that the exported JSON is readable and not encrypted. It includes workspace details and local file paths; it excludes SoundCloud credentials and audio bytes. Its SHA-256 checksum can detect accidental changes or corruption, but it is not a signature and does not prove who created the file. Keep backups somewhere you control.
 
 ### Restore a backup or recovery point
 
-Choose **Restore a backup** in Settings to select a JSON backup. Review the change preview and confirm before replacement. SC-DS saves the current workspace first. Backups contain references to audio and artwork, not those media files; when moving to another PC, move the source media separately.
+Choose **Restore a backup** in Settings to select a JSON backup. Review the change preview and confirm before replacement. SoundHub saves the current workspace first. Backups contain references to audio and artwork, not those media files; when moving to another PC, move the source media separately.
 
-For automatic local recovery history, choose **Review recovery points**. Inspect the timestamp, profile name, and record counts, then review the confirmation preview before restoring. SC-DS preserves the current workspace before replacement. Recovery history holds workspace metadata and file references only.
+For automatic local recovery history, choose **Review recovery points**. Inspect the timestamp, profile name, and record counts, then review the confirmation preview before restoring. SoundHub preserves the current workspace before replacement. Recovery history holds workspace metadata and file references only.
 
 ### Health and support
 
@@ -159,9 +159,9 @@ In **System health & support**, select **Refresh system health** to check storag
 
 ## Check for updates
 
-In Settings, choose **Check GitHub for updates** when you want to check the latest stable release. SC-DS checks the fixed [Black Lion Studios GitHub repository](https://github.com/ghostventure/soundcloud-desktop), downloads the matching Windows setup only when you request it, and verifies its SHA-256 against the GitHub release metadata. If the installer is signed, SC-DS also checks that the signature is valid and identifies Black Lion Studios. It repeats verification before opening setup. You must confirm before setup opens; updates are not silently installed and are not checked in the background.
+In Settings, choose **Check GitHub for updates** when you want to check the latest stable release. SoundHub checks the fixed [Black Lion Studios GitHub repository](https://github.com/ghostventure/soundcloud-desktop), downloads the matching Windows setup only when you request it, and verifies its SHA-256 against the GitHub release metadata. If the installer is signed, SoundHub also checks that the signature is valid and identifies Black Lion Studios. It repeats verification before opening setup. You must confirm before setup opens; updates are not silently installed and are not checked in the background.
 
-The 1.0.0 Windows release uses **SC-DS Installation Manager**. Setup opens visibly so you can review it. Installation or upgrade requires the current consent record. Unsigned installers may show a Windows unknown-publisher warning when opened directly.
+The 1.0.1 Windows release uses **SoundHub Installation Manager**. Setup opens visibly so you can review it. Installation or upgrade requires the current consent record. Unsigned installers may show a Windows unknown-publisher warning when opened directly.
 
 ## Keyboard and accessibility
 
@@ -182,7 +182,7 @@ Use the **Aa** display preferences control for higher contrast, compact spacing,
 | --- | --- |
 | Overview has no SoundCloud tracks | Open SoundCloud, connect the intended account, and select **Sync catalog**. The local Music library is separate. |
 | The track list or totals look old | Select **Sync catalog** and check the last-sync time. Totals reflect the last returned snapshot. |
-| SC-DS says the authorization request is already open | Find the existing SoundCloud page in your browser and finish it. If it is gone, wait up to five minutes for the request to expire before reconnecting. |
+| SoundHub says the authorization request is already open | Find the existing SoundCloud page in your browser and finish it. If it is gone, wait up to five minutes for the request to expire before reconnecting. |
 | Authorization returns without connecting | Check that the Client ID and secret belong to the same registered app and that its redirect URI is exactly `http://127.0.0.1:49832/callback`. |
 | SoundCloud preview is unavailable | Sync the catalog. SoundCloud must mark the track streamable for this account and track. Otherwise use **Open track** on SoundCloud. |
 | A local audio file will not play | Check that the original file still exists and that its codec is supported. Use **Reveal in Explorer** to locate it. |
@@ -192,11 +192,11 @@ Use the **Aa** display preferences control for higher contrast, compact spacing,
 
 ## Product identity and related documentation
 
-SC-DS is created and published by Black Lion Studios, which supports SoundCloud. SC-DS is currently an independent product and is not affiliated with or endorsed by SoundCloud; this relationship status may change. SoundCloud owns its platform, API, and marks.
+SoundHub is created and published by Black Lion Studios, which supports SoundCloud. SoundHub is currently an independent product and is not affiliated with or endorsed by SoundCloud; this relationship status may change. SoundCloud owns its platform, API, and marks.
 
 - [Privacy, product identity, and third-party licenses](PRIVACY-AND-LICENSES.md)
 - [Security and local data protection](SECURITY-1.0.0.md)
 - [First-run consent details](FIRST-RUN-CONSENT.md)
 - [Windows installer and runtime requirements](WINDOWS-INSTALLER.md)
-- [Version 1.0.0 release notes](RELEASE-1.0.0.md)
+- [Version 1.0.1 release notes](RELEASE-1.0.1.md)
 - [Project README](../README.md)

@@ -1,4 +1,4 @@
-# Soundcloud Desktop 0.3.0 local installation
+# SoundHub 0.3.0 local installation
 
 This release adds three groups of SoundCloud API-backed UX features. The installer is built locally; no GitHub release is claimed by this document.
 
