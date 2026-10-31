@@ -1,10 +1,10 @@
 # SoundHub User Guide
 
-**Version 1.0.1 · Windows 10 and 11**
+**Version 1.0.1 | Windows 10 and 11**
 
 SoundHub helps you organize music on this PC, prepare releases, and work with the SoundCloud account you connect. Your local music library and your online SoundCloud catalog are separate. Importing a file does not upload it; uploading is always a separate action.
 
-For a web version with illustrated setup and troubleshooting, see the [SoundHub online user guide](https://soundhub-by-black-lion-studios.web.app/guide.html). The [SoundHub website](https://soundhub-by-black-lion-studios.web.app/) links to the current installer and the [Legal Center](https://soundhub-by-black-lion-studios.web.app/legal.html).
+For a web version with illustrated setup and troubleshooting, see the [SoundHub online user guide](https://soundhub-by-black-lion-studios.web.app/guide.html). Download the [printable PDF user guide](https://soundhub-by-black-lion-studios.web.app/SoundHub-User-Guide-1.0.1.pdf) for offline reading. The [SoundHub website](https://soundhub-by-black-lion-studios.web.app/) links to the current installer and the [Legal Center](https://soundhub-by-black-lion-studios.web.app/legal.html).
 
 ![Illustrated first-use path: set up your workspace, connect SoundCloud, sync, then review your catalog.](images/guide-start-here.svg)
 
