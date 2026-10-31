@@ -4,6 +4,8 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const manifestPath = path.join(root, 'installer', 'components.json');
 const outputPath = path.join(root, 'build', 'installer.nsh');
+const consentSourcePath = path.join(root, 'installer', 'consent.nsh');
+const consentOutputPath = path.join(root, 'build', 'consent.nsh');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const allowedCategories = new Set([
   'soundcloud-supported',
@@ -163,5 +165,6 @@ const script = [
 const catalogTextLength = lines.join('\n').length;
 if (catalogTextLength > 950) throw Error(`Installer catalog display text is too long (${catalogTextLength}/950 characters).`);
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+fs.copyFileSync(consentSourcePath, consentOutputPath);
 fs.writeFileSync(outputPath, script, 'utf8');
-process.stdout.write(`Generated ${manifest.managerName} catalog UI from installer/components.json (${items.length} entries).\n`);
+process.stdout.write(`Generated ${manifest.managerName} catalog and consent UI from installer sources (${items.length} catalog entries).\n`);

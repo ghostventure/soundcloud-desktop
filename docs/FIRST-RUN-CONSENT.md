@@ -19,6 +19,8 @@ After the user checks the box and chooses **Install**, setup stores the accepted
 
 `HKEY_CURRENT_USER\Software\SC-DS\InstallationManager\Consent`
 
+The `SC-DS` registry path is a legacy compatibility key retained so users who already accepted the prior installer consent do not need to repeat the same confirmation solely because the product name changed to SoundHub.
+
 Values are `Version`, `AcceptedAtLocal`, and `Categories`. The acceptance time is local Windows time, not UTC. The record stays on this PC and is not sent to SoundCloud, GitHub, or the app publisher. Consent version `1.0.0` is skipped on future installs while the recorded version matches. If the consent wording or covered categories materially change, setup's consent version must be incremented; the next installer then presents the page again. Canceling or failing to save the record prevents installation from continuing.
 
 Uninstall preserves this record, the user's workspace, and encrypted credentials. The app installer is distinct from Windows/system components: its bundled Electron runtime is part of the app package, while Windows provides the operating-system services listed above.

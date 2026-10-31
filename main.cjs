@@ -37,7 +37,7 @@ function notifyHidden(kind){
  try{const notification=new Notification({title:message[0],body:message[1]});notification.on('click',()=>{if(!win||win.isDestroyed())createWindow();else{win.show();win.focus();}});notification.show();}catch{}
 }
 function createWindow(){
- win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'SoundHub — Artist workspace',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webviewTag:false,webSecurity:true,allowRunningInsecureContent:false,devTools:!app.isPackaged}});
+ win=new BrowserWindow({width:1380,height:920,minWidth:980,minHeight:700,title:'SoundHub',icon:path.join(__dirname,'assets/icon.ico'),backgroundColor:'#191a1d',...(Number(require('node:os').release().split('.')[2])>=22621?{backgroundMaterial:'mica'}:{}),titleBarStyle:'hidden',titleBarOverlay:{color:'#191a1d',symbolColor:'#ffffff',height:44},show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webviewTag:false,webSecurity:true,allowRunningInsecureContent:false,devTools:!app.isPackaged}});
  win.removeMenu(); win.loadFile(path.join(__dirname,'ui/index.html')); win.once('ready-to-show',()=>{theme(store.read().profile.theme);win.show();});
  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
  win.webContents.on('will-navigate',e=>e.preventDefault());
@@ -701,7 +701,7 @@ if(!app.requestSingleInstanceLock()) app.quit(); else {
     throw error;
    }finally{uploadController=null;}
   });
-  tray=new Tray(path.join(__dirname,'assets/icon.ico'));tray.setToolTip('SoundHub · Artist workspace');
+  tray=new Tray(path.join(__dirname,'assets/icon.ico'));tray.setToolTip('SoundHub');
   tray.setContextMenu(Menu.buildFromTemplate([{label:'Open SoundHub',click:()=>{if(!win)createWindow();else win.show();}},{label:'Quit',click:()=>{quitting=true;app.quit();}}]));
   tray.on('double-click',()=>{if(!win)createWindow();else win.show();});
   handler('workspace:read',()=>store.read());

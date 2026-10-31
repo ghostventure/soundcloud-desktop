@@ -1,4 +1,4 @@
-﻿!include "nsDialogs.nsh"
+!include "nsDialogs.nsh"
 !include "LogicLib.nsh"
 !ifndef BUILD_UNINSTALLER
 
@@ -52,7 +52,7 @@ Function SCManagerConsentPage
 
   nsDialogs::CreateControl "EDIT" "${WS_CHILD}|${WS_VISIBLE}|${WS_VSCROLL}|${ES_MULTILINE}|${ES_READONLY}|${ES_AUTOVSCROLL}" "${WS_EX_CLIENTEDGE}" 0 53u 100% 42u ""
   Pop $SCMConsentText
-  StrCpy $0 "INDEPENDENT APP$\r$\nBlack Lion Studios supports SoundCloud. SC-DS is an independent product, currently not affiliated with or endorsed by SoundCloud; status may change.$\r$\n$\r$\nDMCA / COPYRIGHT$\r$\nUpload only content you own or may use. You are responsible for copyright/DMCA notices. No legal advice or protection.$\r$\n$\r$\n"
+  StrCpy $0 "INDEPENDENT APP$\r$\nBlack Lion Studios supports SoundCloud. SoundHub is an independent product, currently not affiliated with or endorsed by SoundCloud; status may change.$\r$\n$\r$\nDMCA / COPYRIGHT$\r$\nUpload only content you own or may use. You are responsible for copyright/DMCA notices. No legal advice or protection.$\r$\n$\r$\n"
   StrCpy $0 "$0SOUNDCLOUD SERVICES$\r$\nAPI features: feed, comments, followed-artist tracks, catalog sync, uploads, metrics. Team inbox and processing status unavailable. SoundCloud terms apply. Sign-in opens browser; GitHub checks/downloads updates when requested.$\r$\n$\r$\n"
   StrCpy $0 "$0PRIVACY / COMPONENTS$\r$\nWorkspace and account snapshots stay local. Credentials use Electron safeStorage/Windows DPAPI; consent stays local. Optional support bundle: app version, health, sanitized events; excludes content, credentials, account IDs, paths, raw errors. Full privacy/license notice bundled and in Settings.$\r$\nElectron/Chromium/Node.js included. Windows provides networking/file dialogs; no .NET, WebView2, or Visual C++ runtime needed."
   ${NSD_SetText} $SCMConsentText $0

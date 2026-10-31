@@ -13,7 +13,7 @@ From the project folder:
 
 The 1.0.1 package is configured for distribution through the SoundHub Installation Manager only. Run setup before first use; portable copies are not part of this package because they would bypass the install-time consent and compatibility checks. The consent page shows the privacy summary and links to SoundCloud's official terms. The full [privacy and third-party notice](PRIVACY-AND-LICENSES.md) is bundled with the app and available from Settings after installation.
 
-The desktop app's Windows identity (`appId`) is retained for upgrades. Setup reads the existing per-user install location so the product name change does not create a second install. SoundHub also keeps the existing `%APPDATA%\Soundcloud Desktop` data folder so prior workspace and encrypted connection data remain available.
+The desktop app's Windows identity (`appId`), consent registry key, and `%APPDATA%\Soundcloud Desktop` data folder are retained for upgrades. This keeps prior workspaces, encrypted connection data, and consent available; these are internal compatibility identifiers, while the installer and app display the unified SoundHub name.
 
 The assisted setup installs per-user without elevation, allows the install folder to be changed, and creates Start menu and desktop shortcuts. Uninstall removes app files and shortcuts while preserving the user's workspace and encrypted credentials.
 

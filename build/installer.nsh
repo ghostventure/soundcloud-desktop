@@ -6,8 +6,8 @@
 !include "${__FILEDIR__}\consent.nsh"
 !endif
 
-!define MUI_WELCOMEPAGE_TITLE "SC-DS Installation Manager"
-!define MUI_WELCOMEPAGE_TEXT "Installs SC-DS 1.0.0. Setup contains the app and its runtime; no extra component choices are needed."
+!define MUI_WELCOMEPAGE_TITLE "SoundHub Installation Manager"
+!define MUI_WELCOMEPAGE_TEXT "Installs SoundHub 1.0.1. Setup contains the app and its runtime; no extra component choices are needed."
 
 !ifndef BUILD_UNINSTALLER
 Var CatalogDialog
