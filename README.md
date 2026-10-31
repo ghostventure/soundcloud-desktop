@@ -6,6 +6,7 @@ Created and published by Black Lion Studios. Black Lion Studios supports SoundCl
 
 - [SoundHub website](https://soundhub-by-black-lion-studios.web.app/) — current product overview and Windows release links.
 - [Online user guide](https://soundhub-by-black-lion-studios.web.app/guide.html) — setup, workspace, SoundCloud connection, uploads, backups, updates, and troubleshooting.
+- [Downloadable PDF user guide](https://soundhub-by-black-lion-studios.web.app/SoundHub-User-Guide-1.0.1.pdf) - 10-page printable guide for SoundHub 1.0.1.
 - [Legal Center](https://soundhub-by-black-lion-studios.web.app/legal.html) — privacy, terms, copyright, API attribution, security, accessibility, and related notices.
 - [Latest stable release](https://github.com/ghostventure/soundcloud-desktop/releases/latest) — installer, release notes, and checksum.
 

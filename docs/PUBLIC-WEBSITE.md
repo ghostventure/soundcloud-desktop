@@ -15,6 +15,8 @@
 
 ## Product claims and user expectations
 
+The public site now offers the comprehensive 10-page SoundHub 1.0.1 user guide as a direct PDF download at <https://soundhub-by-black-lion-studios.web.app/SoundHub-User-Guide-1.0.1.pdf>. The source guide is `docs/USER-GUIDE.md`; the generated review-ready PDF is `output/pdf/SoundHub-User-Guide-1.0.1.pdf`. The online guide and homepage both link to the PDF.
+
 The public page describes features documented in the current app release: local audio import/playback, release planning, campaign/contact organization, artist profile editing, user-initiated SoundCloud actions, direct uploads, catalog/activity/comments review, and manual-sync snapshots with CSV export. Counts and performance indicators are snapshots rather than real-time analytics. Release dates and reminders are local; SoundHub does not schedule SoundCloud publication. Audio remains at its source location until a user chooses an upload.
 
 SoundHub is independent software from Black Lion Studios. It is not affiliated with, sponsored by, or endorsed by SoundCloud. SoundCloud currently requires an Artist Pro subscription to register an API application and receive credentials. Link to the [current SoundCloud registration instructions](https://developers.soundcloud.com/docs/api/register-app) and review the provider's current terms; access requirements may change.
