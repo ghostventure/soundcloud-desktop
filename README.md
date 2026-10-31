@@ -2,9 +2,18 @@
 
 Created and published by Black Lion Studios. Black Lion Studios supports SoundCloud; SoundHub is currently an independent product and is not affiliated with or endorsed by SoundCloud. This relationship status may change. SoundCloud owns its platform, API, and marks; third-party software remains under its own licenses. See [privacy and third-party licenses](docs/PRIVACY-AND-LICENSES.md).
 
+## SoundHub online
+
+- [SoundHub website](https://soundhub-by-black-lion-studios.web.app/) — current product overview and Windows release links.
+- [Online user guide](https://soundhub-by-black-lion-studios.web.app/guide.html) — setup, workspace, SoundCloud connection, uploads, backups, updates, and troubleshooting.
+- [Legal Center](https://soundhub-by-black-lion-studios.web.app/legal.html) — privacy, terms, copyright, API attribution, security, accessibility, and related notices.
+- [Latest stable release](https://github.com/ghostventure/soundcloud-desktop/releases/latest) — installer, release notes, and checksum.
+
+The website describes the current 1.0.1 Windows x64 release. Its legal pages identify open publisher details that still require completion and attorney review; the proposed EULA is not yet the installer’s bundled license. See [public website documentation](docs/PUBLIC-WEBSITE.md) for the current site inventory and publishing notes.
+
 ## Current project version
 
-The current source and package metadata are version 1.0.1. It includes API-backed SoundCloud activity, comments review, followed-artist recent tracks, sync-based performance milestones, and CSV export. The installer is named **SoundHub Installation Manager**. See the [1.0.1 release notes](docs/RELEASE-1.0.1.md), [Windows installer and runtime requirements](docs/WINDOWS-INSTALLER.md), [SoundHub user guide](docs/USER-GUIDE.md), and [security and local data protection](docs/SECURITY-1.0.0.md).
+The current stable source, package metadata, and published installer are version 1.0.1. It includes API-backed SoundCloud activity, comments review, followed-artist recent tracks, sync-based performance milestones, and CSV export. The installer is named **SoundHub Installation Manager**. See the [1.0.1 release notes](docs/RELEASE-1.0.1.md), [Windows installer and runtime requirements](docs/WINDOWS-INSTALLER.md), [SoundHub user guide](docs/USER-GUIDE.md), and [security and local data protection](docs/SECURITY-1.0.0.md).
 
 Version 0.2.7 added catalog filters and comparison tools, track review and detail tools, workspace accessibility and navigation options, and encrypted multi-account switching. Backend catalog snapshots and workspace saves also use less memory and disk space. See [0.2.7 release notes](docs/RELEASE-0.2.7.md).
 

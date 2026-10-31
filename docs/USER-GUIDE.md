@@ -4,6 +4,8 @@
 
 SoundHub helps you organize music on this PC, prepare releases, and work with the SoundCloud account you connect. Your local music library and your online SoundCloud catalog are separate. Importing a file does not upload it; uploading is always a separate action.
 
+For a web version with illustrated setup and troubleshooting, see the [SoundHub online user guide](https://soundhub-by-black-lion-studios.web.app/guide.html). The [SoundHub website](https://soundhub-by-black-lion-studios.web.app/) links to the current installer and the [Legal Center](https://soundhub-by-black-lion-studios.web.app/legal.html).
+
 ![Illustrated first-use path: set up your workspace, connect SoundCloud, sync, then review your catalog.](images/guide-start-here.svg)
 
 *Illustration: the usual first-use path. It is a guide diagram, not a screenshot.*
@@ -49,7 +51,7 @@ The preview shows how your details fit together. **Copy artist bio** copies form
 SoundHub uses credentials from your own SoundCloud API application. Keep the Client secret private.
 
 1. Open **SoundCloud** and find **Connection setup**.
-2. Register or open your API application using SoundCloud's [API app registration instructions](https://developers.soundcloud.com/docs/api/register-app). Follow SoundCloud's current account requirements.
+2. Register or open your API application using SoundCloud's [API app registration instructions](https://developers.soundcloud.com/docs/api/register-app). SoundCloud currently requires an Artist Pro subscription to register an API app and receive credentials; verify the live instructions before setup because platform requirements can change.
 3. Set its redirect URI to exactly:
 
    `http://127.0.0.1:49832/callback`

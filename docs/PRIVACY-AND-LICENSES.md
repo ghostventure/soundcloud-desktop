@@ -4,6 +4,10 @@
 
 Black Lion Studios created and publishes SoundHub and supports SoundCloud. SoundHub is currently an independent product and is not affiliated with or endorsed by SoundCloud. This relationship status may change. SoundCloud owns and operates its platform, API, and marks. This app does not imply SoundCloud endorsement.
 
+## Public website and policy pages
+
+The public SoundHub website is <https://soundhub-by-black-lion-studios.web.app/>. Its [Legal Center](https://soundhub-by-black-lion-studios.web.app/legal.html) links to the website privacy notice, website terms, copyright/takedown information, API attribution, security, accessibility, and other topics. Those pages describe both current website behavior and relevant desktop-app data handling where stated. The pages themselves disclose that publisher identity, jurisdiction, legal/privacy contacts, age audience, provider retention details, and counsel review remain to be completed. The web EULA is a proposal and is not currently the license bundled with the installer. This installed-app notice and the installer’s consent screen remain the product’s local privacy/third-party disclosures; do not treat the draft site pages as final contract terms.
+
 ## Data and service use
 
 - The app stores its workspace and recovery history in `%APPDATA%\Soundcloud Desktop`. The workspace, recovery copies, SoundCloud account vault, sync checkpoints, and upload receipts are encrypted for the current Windows account with Electron `safeStorage` backed by Windows DPAPI. On upgrade, valid older plaintext workspace, recovery, and upload-receipt files are converted in place; files that cannot be safely validated are preserved and the Settings health check reports encryption needs attention. The app does not send workspace files to Black Lion Studios.
